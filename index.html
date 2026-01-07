@@ -1,0 +1,774 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login System Pro</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Montserrat:wght@400;500;600;700&family=Playfair+Display:wght@400;600;700&family=Poppins:wght@400;500;600;700&family=Roboto:wght@400;500;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <!-- OTPAuth for 2FA -->
+    <script src="https://cdn.jsdelivr.net/npm/otpauth@9.2.2/dist/otpauth.umd.min.js"></script>
+    <!-- QR Code Generator -->
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body class="gradient-bg min-h-screen flex items-center justify-center p-4">
+    
+    <!-- Login Form -->
+    <div id="loginForm" class="bg-white rounded-2xl card-shadow p-8 w-full max-w-md">
+        <div class="text-center mb-8">
+            <div class="w-20 h-20 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-full mx-auto flex items-center justify-center mb-4">
+                <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                </svg>
+            </div>
+            <h1 class="text-3xl font-bold text-gray-800">Welcome Back</h1>
+            <p class="text-gray-500 mt-2">Sign in to your account</p>
+        </div>
+        
+        <div id="loginError" class="hidden bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-4"></div>
+        
+        <div class="space-y-5">
+            <div>
+                <label class="block text-gray-700 font-medium mb-2">Username</label>
+                <input type="text" id="loginUsername" class="w-full px-4 py-3 border border-gray-300 rounded-lg input-focus focus:outline-none focus:border-indigo-500 transition" placeholder="Enter your username">
+            </div>
+            <div>
+                <label class="block text-gray-700 font-medium mb-2">Password</label>
+                <input type="password" id="loginPassword" class="w-full px-4 py-3 border border-gray-300 rounded-lg input-focus focus:outline-none focus:border-indigo-500 transition" placeholder="Enter your password">
+            </div>
+            <div class="flex items-center justify-between">
+                <label class="flex items-center">
+                    <input type="checkbox" id="rememberMe" class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500">
+                    <span class="ml-2 text-gray-600 text-sm">Remember me</span>
+                </label>
+                <a href="#" class="text-indigo-600 text-sm hover:underline">Forgot password?</a>
+            </div>
+            <button onclick="login()" class="w-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white py-3 rounded-lg font-semibold hover:opacity-90 transition transform hover:scale-[1.02]">
+                Sign In
+            </button>
+        </div>
+        
+        <p class="text-center text-gray-600 mt-6">
+            Don't have an account? 
+            <a href="#" onclick="showRegister()" class="text-indigo-600 font-semibold hover:underline">Sign up</a>
+        </p>
+    </div>
+
+    <!-- 2FA Verification Form -->
+    <div id="twoFactorForm" class="hidden bg-white rounded-2xl card-shadow p-8 w-full max-w-md">
+        <div class="text-center mb-8">
+            <div class="w-20 h-20 bg-gradient-to-r from-green-500 to-emerald-600 rounded-full mx-auto flex items-center justify-center mb-4 pulse-glow">
+                <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+                </svg>
+            </div>
+            <h1 class="text-3xl font-bold text-gray-800">2FA Verification</h1>
+            <p class="text-gray-500 mt-2">Enter the code from your authenticator app</p>
+        </div>
+        
+        <div id="twoFactorError" class="hidden bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-4"></div>
+        
+        <div class="space-y-5">
+            <div>
+                <label class="block text-gray-700 font-medium mb-2">6-Digit Code</label>
+                <input type="text" id="twoFactorCode" maxlength="6" class="w-full px-4 py-4 text-center text-2xl tracking-[0.5em] border border-gray-300 rounded-lg input-focus focus:outline-none focus:border-indigo-500 transition font-mono" placeholder="000000">
+            </div>
+            <button onclick="verify2FA()" class="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white py-3 rounded-lg font-semibold hover:opacity-90 transition transform hover:scale-[1.02]">
+                Verify
+            </button>
+            <button onclick="cancel2FA()" class="w-full bg-gray-200 hover:bg-gray-300 text-gray-700 py-3 rounded-lg font-semibold transition">
+                Cancel
+            </button>
+        </div>
+    </div>
+
+    <!-- Register Form -->
+    <div id="registerForm" class="hidden bg-white rounded-2xl card-shadow p-8 w-full max-w-md">
+        <div class="text-center mb-8">
+            <div class="w-20 h-20 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-full mx-auto flex items-center justify-center mb-4">
+                <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"></path>
+                </svg>
+            </div>
+            <h1 class="text-3xl font-bold text-gray-800">Create Account</h1>
+            <p class="text-gray-500 mt-2">Join us today</p>
+        </div>
+        
+        <div id="registerError" class="hidden bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-4"></div>
+        <div id="registerSuccess" class="hidden bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded-lg mb-4"></div>
+        
+        <div class="space-y-5">
+            <div>
+                <label class="block text-gray-700 font-medium mb-2">Display Name</label>
+                <input type="text" id="registerName" class="w-full px-4 py-3 border border-gray-300 rounded-lg input-focus focus:outline-none focus:border-indigo-500 transition" placeholder="Enter your display name">
+            </div>
+            <div>
+                <label class="block text-gray-700 font-medium mb-2">Username</label>
+                <input type="text" id="registerUsername" class="w-full px-4 py-3 border border-gray-300 rounded-lg input-focus focus:outline-none focus:border-indigo-500 transition" placeholder="Choose a username (no spaces)">
+            </div>
+            <div>
+                <label class="block text-gray-700 font-medium mb-2">Password</label>
+                <input type="password" id="registerPassword" class="w-full px-4 py-3 border border-gray-300 rounded-lg input-focus focus:outline-none focus:border-indigo-500 transition" placeholder="Create a password">
+            </div>
+            <div>
+                <label class="block text-gray-700 font-medium mb-2">Confirm Password</label>
+                <input type="password" id="confirmPassword" class="w-full px-4 py-3 border border-gray-300 rounded-lg input-focus focus:outline-none focus:border-indigo-500 transition" placeholder="Confirm your password">
+            </div>
+            <button onclick="register()" class="w-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white py-3 rounded-lg font-semibold hover:opacity-90 transition transform hover:scale-[1.02]">
+                Create Account
+            </button>
+        </div>
+        
+        <p class="text-center text-gray-600 mt-6">
+            Already have an account? 
+            <a href="#" onclick="showLogin()" class="text-indigo-600 font-semibold hover:underline">Sign in</a>
+        </p>
+    </div>
+
+    <!-- Dashboard -->
+    <div id="dashboard" class="hidden w-full max-w-6xl">
+        <div class="bg-white rounded-2xl card-shadow overflow-hidden">
+            <!-- Header -->
+            <div class="bg-gradient-to-r from-indigo-500 to-purple-600 p-6 text-white">
+                <div class="flex justify-between items-center flex-wrap gap-4">
+                    <div class="flex items-center gap-3">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <h1 class="text-2xl font-bold">Dashboard</h1>
+                                <span id="roleBadge" class="hidden admin-badge text-xs px-2 py-1 rounded-full font-bold">ADMIN</span>
+                            </div>
+                            <p class="opacity-80">Welcome back, <span id="userName"></span>!</p>
+                        </div>
+                    </div>
+                    <div class="flex gap-2 flex-wrap">
+                        <button onclick="viewMyPage()" class="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg transition flex items-center gap-2">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                            </svg>
+                            My Page
+                        </button>
+                        <button id="adminPanelBtn" onclick="showAdminPanel()" class="hidden bg-gradient-to-r from-red-500 to-rose-600 hover:opacity-90 px-4 py-2 rounded-lg transition flex items-center gap-2 shadow-lg">
+                            <span class="text-lg">👑</span>
+                            Owner Panel
+                        </button>
+                        <button onclick="logout()" class="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg transition flex items-center gap-2">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
+                            </svg>
+                            Logout
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Content -->
+            <div class="p-6">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                    <div class="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-6 text-white">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="opacity-80">Total Users</p>
+                                <p class="text-3xl font-bold" id="totalUsers">0</p>
+                            </div>
+                            <svg class="w-12 h-12 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="bg-gradient-to-br from-green-500 to-green-600 rounded-xl p-6 text-white">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="opacity-80">Your Role</p>
+                                <p class="text-2xl font-bold" id="userRole">User</p>
+                            </div>
+                            <svg class="w-12 h-12 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl p-6 text-white">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="opacity-80">2FA Status</p>
+                                <p class="text-2xl font-bold" id="twoFAStatus">Disabled</p>
+                            </div>
+                            <svg class="w-12 h-12 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl p-6 text-white">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="opacity-80">Last Login</p>
+                                <p class="text-xl font-bold" id="lastLogin">Just now</p>
+                            </div>
+                            <svg class="w-12 h-12 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- User Profile Card -->
+                <div class="bg-gray-50 rounded-xl p-6">
+                    <div class="flex items-center justify-between mb-4 flex-wrap gap-4">
+                        <h2 class="text-xl font-bold text-gray-800">Your Profile</h2>
+                        <div class="flex gap-2 flex-wrap">
+                            <button onclick="openPageEditor(currentUser.username)" class="bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded-lg transition flex items-center gap-2">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                                </svg>
+                                Edit My Page
+                            </button>
+                            <button onclick="openTwoFactorSetup()" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition flex items-center gap-2">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+                                </svg>
+                                <span id="twoFABtnText">Setup 2FA</span>
+                            </button>
+                            <button onclick="openEditProfile()" class="bg-indigo-500 hover:bg-indigo-600 text-white px-4 py-2 rounded-lg transition flex items-center gap-2">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path>
+                                </svg>
+                                Edit Profile
+                            </button>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-4">
+                        <div class="w-16 h-16 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-full flex items-center justify-center text-white text-2xl font-bold" id="userAvatar"></div>
+                        <div>
+                            <p class="text-lg font-semibold text-gray-800" id="profileName"></p>
+                            <p class="text-gray-500">@<span id="profileUsername"></span></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Owner Panel -->
+    <div id="adminPanel" class="hidden w-full max-w-6xl page-transition">
+        <div class="bg-white rounded-2xl card-shadow overflow-hidden hover-lift">
+            <div class="bg-gradient-to-r from-red-600 to-rose-700 p-6 text-white">
+                <div class="flex justify-between items-center flex-wrap gap-4">
+                    <div>
+                        <h1 class="text-2xl font-bold flex items-center gap-2">👑 Owner Panel</h1>
+                        <p class="opacity-80">Supreme control over all users, pages & site</p>
+                    </div>
+                    <div class="flex gap-2 flex-wrap">
+                        <button onclick="openSiteEditor()" class="bg-gradient-to-r from-purple-500 to-pink-500 hover:opacity-90 px-4 py-2 rounded-lg transition flex items-center gap-2 shadow-lg">
+                            <span class="text-lg">🎨</span>
+                            Edit Entire Site
+                        </button>
+                        <button onclick="showDashboard()" class="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg transition flex items-center gap-2">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                            </svg>
+                            Back to Dashboard
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="p-6">
+                <h3 class="text-lg font-bold text-gray-800 mb-4">All Users</h3>
+                <div id="usersList" class="space-y-3"></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Transfer Ownership Modal -->
+    <div id="transferOwnerModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-2xl card-shadow p-8 w-full max-w-md text-center">
+            <div class="w-16 h-16 bg-gradient-to-r from-red-500 to-rose-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span class="text-3xl">👑</span>
+            </div>
+            <h3 class="text-xl font-bold text-gray-800 mb-2">Transfer Ownership?</h3>
+            <p class="text-gray-500 mb-2">You are about to transfer your Owner role to:</p>
+            <p class="text-xl font-bold text-red-600 mb-4" id="transferTargetName"></p>
+            <div class="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 text-left">
+                <p class="text-red-800 text-sm font-semibold mb-2">⚠️ WARNING - This action is IRREVERSIBLE!</p>
+                <ul class="text-red-700 text-sm space-y-1">
+                    <li>• You will be demoted to Admin</li>
+                    <li>• The new owner will have supreme control</li>
+                    <li>• They can demote or delete you</li>
+                    <li>• You cannot undo this action</li>
+                </ul>
+            </div>
+            <div class="mb-4">
+                <label class="block text-gray-700 text-sm font-medium mb-2">Type "TRANSFER" to confirm:</label>
+                <input type="text" id="transferConfirmInput" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-red-500" placeholder="Type TRANSFER">
+            </div>
+            <div class="flex gap-3">
+                <button onclick="closeTransferModal()" class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 py-3 rounded-lg font-semibold transition">Cancel</button>
+                <button onclick="confirmTransferOwnership()" class="flex-1 bg-gradient-to-r from-red-500 to-rose-600 text-white py-3 rounded-lg font-semibold hover:opacity-90 transition">Transfer</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- User Page Editor Modal -->
+    <div id="pageEditorModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto">
+        <div class="bg-white rounded-2xl card-shadow p-6 w-full max-w-5xl my-8">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-bold text-gray-800">Edit User Page: <span id="editingUserName" class="text-indigo-600"></span></h2>
+                <button onclick="closePageEditor()" class="text-gray-400 hover:text-gray-600 transition">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+            
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Editor Section -->
+                <div class="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
+                    <!-- Basic Settings -->
+                    <div class="bg-gray-50 rounded-xl p-4">
+                        <h3 class="font-bold text-gray-800 mb-3 flex items-center gap-2">⚙️ Basic Settings</h3>
+                        <div class="space-y-3">
+                            <div>
+                                <label class="block text-gray-700 text-sm font-medium mb-1">Page Title</label>
+                                <input type="text" id="pageTitle" class="w-full px-3 py-2 border border-gray-300 rounded-lg input-focus focus:outline-none focus:border-indigo-500 transition" placeholder="User's Page Title">
+                            </div>
+                            <div>
+                                <label class="block text-gray-700 text-sm font-medium mb-1">Bio Text</label>
+                                <textarea id="pageBio" class="w-full px-3 py-2 border border-gray-300 rounded-lg input-focus focus:outline-none focus:border-indigo-500 transition" rows="2" placeholder="User bio..."></textarea>
+                            </div>
+                            <div>
+                                <label class="block text-gray-700 text-sm font-medium mb-1">Avatar Emoji (optional)</label>
+                                <input type="text" id="pageAvatar" class="w-full px-3 py-2 border border-gray-300 rounded-lg input-focus focus:outline-none focus:border-indigo-500 transition" placeholder="e.g. 🎮 or leave empty for initial" maxlength="2">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Theme & Colors -->
+                    <div class="bg-gray-50 rounded-xl p-4">
+                        <h3 class="font-bold text-gray-800 mb-3 flex items-center gap-2">🎨 Theme & Colors</h3>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-gray-700 text-sm font-medium mb-1">Background Start</label>
+                                <input type="color" id="pageBgColor" value="#667eea" class="w-full h-10 rounded-lg cursor-pointer">
+                            </div>
+                            <div>
+                                <label class="block text-gray-700 text-sm font-medium mb-1">Background End</label>
+                                <input type="color" id="pageBgColor2" value="#764ba2" class="w-full h-10 rounded-lg cursor-pointer">
+                            </div>
+                            <div>
+                                <label class="block text-gray-700 text-sm font-medium mb-1">Text Color</label>
+                                <input type="color" id="pageTextColor" value="#ffffff" class="w-full h-10 rounded-lg cursor-pointer">
+                            </div>
+                            <div>
+                                <label class="block text-gray-700 text-sm font-medium mb-1">Card Color</label>
+                                <input type="color" id="pageCardColor" value="#ffffff" class="w-full h-10 rounded-lg cursor-pointer">
+                            </div>
+                        </div>
+                        <div class="mt-3">
+                            <label class="block text-gray-700 text-sm font-medium mb-1">Background Pattern</label>
+                            <select id="pageBgPattern" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                                <option value="none">None</option>
+                                <option value="dots">Dots</option>
+                                <option value="grid">Grid</option>
+                                <option value="waves">Waves</option>
+                                <option value="stars">Stars ✨</option>
+                            </select>
+                        </div>
+                        <div class="mt-3 flex items-center gap-3">
+                            <input type="checkbox" id="pageGlowEffect" class="w-4 h-4 text-indigo-600">
+                            <label class="text-gray-700 text-sm font-medium">Enable Glow Effects</label>
+                        </div>
+                    </div>
+                    
+                    <!-- Social Links -->
+                    <div class="bg-gray-50 rounded-xl p-4">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="font-bold text-gray-800 flex items-center gap-2">🔗 Social Links</h3>
+                            <button onclick="addSocialLink()" class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded-lg text-sm transition">+ Add Link</button>
+                        </div>
+                        <div id="socialLinksList" class="space-y-2 max-h-32 overflow-y-auto"></div>
+                    </div>
+                    
+                    <!-- Custom Buttons -->
+                    <div class="bg-gray-50 rounded-xl p-4">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="font-bold text-gray-800 flex items-center gap-2">🔘 Custom Buttons</h3>
+                            <button onclick="addButton()" class="bg-indigo-500 hover:bg-indigo-600 text-white px-3 py-1 rounded-lg text-sm transition">+ Add Button</button>
+                        </div>
+                        <div id="buttonsList" class="space-y-2 max-h-40 overflow-y-auto"></div>
+                    </div>
+                    
+                    <!-- Sound Effects -->
+                    <div class="bg-gray-50 rounded-xl p-4">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="font-bold text-gray-800 flex items-center gap-2">🔊 Sound Effects</h3>
+                            <button onclick="addSound()" class="bg-purple-500 hover:bg-purple-600 text-white px-3 py-1 rounded-lg text-sm transition">+ Add Sound</button>
+                        </div>
+                        <div id="soundsList" class="space-y-2 max-h-32 overflow-y-auto"></div>
+                    </div>
+                    
+                    <!-- Image Gallery -->
+                    <div class="bg-gray-50 rounded-xl p-4">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="font-bold text-gray-800 flex items-center gap-2">🖼️ Image Gallery</h3>
+                            <button onclick="addImage()" class="bg-pink-500 hover:bg-pink-600 text-white px-3 py-1 rounded-lg text-sm transition">+ Add Image</button>
+                        </div>
+                        <div id="imagesList" class="space-y-2 max-h-32 overflow-y-auto"></div>
+                    </div>
+                    
+                    <!-- Embeds -->
+                    <div class="bg-gray-50 rounded-xl p-4">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="font-bold text-gray-800 flex items-center gap-2">📺 Embeds (YouTube/Spotify)</h3>
+                            <button onclick="addEmbed()" class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded-lg text-sm transition">+ Add Embed</button>
+                        </div>
+                        <div id="embedsList" class="space-y-2 max-h-32 overflow-y-auto"></div>
+                    </div>
+                    
+                    <!-- Text Sections -->
+                    <div class="bg-gray-50 rounded-xl p-4">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="font-bold text-gray-800 flex items-center gap-2">📝 Text Sections</h3>
+                            <button onclick="addTextSection()" class="bg-teal-500 hover:bg-teal-600 text-white px-3 py-1 rounded-lg text-sm transition">+ Add Section</button>
+                        </div>
+                        <div id="textSectionsList" class="space-y-2 max-h-32 overflow-y-auto"></div>
+                    </div>
+                    
+                    <!-- Stats/Counters -->
+                    <div class="bg-gray-50 rounded-xl p-4">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="font-bold text-gray-800 flex items-center gap-2">📊 Stats/Counters</h3>
+                            <button onclick="addStat()" class="bg-amber-500 hover:bg-amber-600 text-white px-3 py-1 rounded-lg text-sm transition">+ Add Stat</button>
+                        </div>
+                        <div id="statsList" class="space-y-2 max-h-32 overflow-y-auto"></div>
+                    </div>
+                    
+                    <button onclick="savePageConfig()" class="w-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white py-3 rounded-lg font-semibold hover:opacity-90 transition">
+                        💾 Save Page Configuration
+                    </button>
+                </div>
+                
+                <!-- Preview Section -->
+                <div class="bg-gray-100 rounded-xl p-4 sticky top-0">
+                    <h3 class="font-bold text-gray-800 mb-3">📱 Live Preview</h3>
+                    <div id="pagePreview" class="rounded-xl overflow-hidden min-h-[500px] max-h-[70vh] overflow-y-auto"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- User Page View -->
+    <div id="userPageView" class="hidden fixed inset-0 z-50 overflow-y-auto">
+        <div id="userPageContent" class="min-h-screen p-8"></div>
+        <button onclick="closeUserPage()" class="fixed top-4 right-4 bg-white/90 hover:bg-white text-gray-800 px-4 py-2 rounded-lg shadow-lg transition flex items-center gap-2">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+            </svg>
+            Close
+        </button>
+    </div>
+
+    <!-- 2FA Setup Modal -->
+    <div id="twoFactorModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-2xl card-shadow p-8 w-full max-w-md">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-bold text-gray-800">Setup 2FA</h2>
+                <button onclick="closeTwoFactorSetup()" class="text-gray-400 hover:text-gray-600 transition">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+            
+            <div id="twoFactorSetupContent">
+                <div class="text-center mb-6">
+                    <p class="text-gray-600 mb-4">Scan this QR code with your authenticator app (Google Authenticator, Authy, etc.)</p>
+                    <div id="qrCode" class="inline-block p-4 bg-white rounded-xl shadow-inner"></div>
+                </div>
+                
+                <div class="bg-gray-50 rounded-lg p-3 mb-4">
+                    <p class="text-xs text-gray-500 mb-1">Or enter this secret manually:</p>
+                    <p id="secretKey" class="font-mono text-sm break-all text-gray-800"></p>
+                </div>
+                
+                <div id="setup2FAError" class="hidden bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-4"></div>
+                
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-gray-700 font-medium mb-2">Enter Code to Verify</label>
+                        <input type="text" id="verify2FACode" maxlength="6" class="w-full px-4 py-3 text-center text-xl tracking-[0.3em] border border-gray-300 rounded-lg input-focus focus:outline-none focus:border-indigo-500 transition font-mono" placeholder="000000">
+                    </div>
+                    <button onclick="enable2FA()" class="w-full bg-gradient-to-r from-green-500 to-emerald-600 text-white py-3 rounded-lg font-semibold hover:opacity-90 transition">
+                        Enable 2FA
+                    </button>
+                </div>
+            </div>
+            
+            <div id="twoFactorDisableContent" class="hidden text-center">
+                <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <svg class="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
+                    </svg>
+                </div>
+                <h3 class="text-xl font-bold text-gray-800 mb-2">2FA is Active</h3>
+                <p class="text-gray-500 mb-6">Your account is protected with two-factor authentication.</p>
+                <button onclick="disable2FA()" class="w-full bg-red-500 hover:bg-red-600 text-white py-3 rounded-lg font-semibold transition">
+                    Disable 2FA
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Profile Modal -->
+    <div id="editProfileModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-2xl card-shadow p-8 w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-bold text-gray-800">Edit Profile</h2>
+                <button onclick="closeEditProfile()" class="text-gray-400 hover:text-gray-600 transition">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+            
+            <div id="editError" class="hidden bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-4"></div>
+            <div id="editSuccess" class="hidden bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded-lg mb-4"></div>
+            
+            <div class="flex justify-center mb-6">
+                <div class="w-24 h-24 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-full flex items-center justify-center text-white text-3xl font-bold" id="editAvatar"></div>
+            </div>
+            
+            <div class="space-y-5">
+                <div>
+                    <label class="block text-gray-700 font-medium mb-2">Display Name</label>
+                    <input type="text" id="editName" class="w-full px-4 py-3 border border-gray-300 rounded-lg input-focus focus:outline-none focus:border-indigo-500 transition" placeholder="Enter your display name">
+                </div>
+                <div>
+                    <label class="block text-gray-700 font-medium mb-2">Username</label>
+                    <div class="flex items-center">
+                        <span class="bg-gray-100 border border-r-0 border-gray-300 px-3 py-3 rounded-l-lg text-gray-500">@</span>
+                        <input type="text" id="editUsername" class="w-full px-4 py-3 border border-gray-300 rounded-r-lg input-focus focus:outline-none focus:border-indigo-500 transition" placeholder="username">
+                    </div>
+                </div>
+                
+                <div class="border-t border-gray-200 pt-4">
+                    <p class="text-sm text-gray-500 mb-4">Leave password fields empty to keep current password</p>
+                </div>
+                
+                <div>
+                    <label class="block text-gray-700 font-medium mb-2">Current Password</label>
+                    <input type="password" id="currentPassword" class="w-full px-4 py-3 border border-gray-300 rounded-lg input-focus focus:outline-none focus:border-indigo-500 transition" placeholder="Enter current password">
+                </div>
+                <div>
+                    <label class="block text-gray-700 font-medium mb-2">New Password</label>
+                    <input type="password" id="newPassword" class="w-full px-4 py-3 border border-gray-300 rounded-lg input-focus focus:outline-none focus:border-indigo-500 transition" placeholder="Enter new password">
+                </div>
+                <div>
+                    <label class="block text-gray-700 font-medium mb-2">Confirm New Password</label>
+                    <input type="password" id="confirmNewPassword" class="w-full px-4 py-3 border border-gray-300 rounded-lg input-focus focus:outline-none focus:border-indigo-500 transition" placeholder="Confirm new password">
+                </div>
+                
+                <div class="flex gap-3 pt-2">
+                    <button onclick="closeEditProfile()" class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 py-3 rounded-lg font-semibold transition">Cancel</button>
+                    <button onclick="saveProfile()" class="flex-1 bg-gradient-to-r from-indigo-500 to-purple-600 text-white py-3 rounded-lg font-semibold hover:opacity-90 transition">Save Changes</button>
+                </div>
+                
+                <div class="border-t border-gray-200 pt-4 mt-4">
+                    <button onclick="confirmDeleteAccount()" class="w-full bg-red-50 hover:bg-red-100 text-red-600 py-3 rounded-lg font-semibold transition flex items-center justify-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                        </svg>
+                        Delete Account
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div id="deleteModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-2xl card-shadow p-8 w-full max-w-sm text-center">
+            <div class="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg class="w-8 h-8 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                </svg>
+            </div>
+            <h3 class="text-xl font-bold text-gray-800 mb-2">Delete Account?</h3>
+            <p class="text-gray-500 mb-6">This action cannot be undone. All your data will be permanently deleted.</p>
+            <div class="flex gap-3">
+                <button onclick="closeDeleteModal()" class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 py-3 rounded-lg font-semibold transition">Cancel</button>
+                <button onclick="deleteAccount()" class="flex-1 bg-red-500 hover:bg-red-600 text-white py-3 rounded-lg font-semibold transition">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Site Editor Modal (Owner Only) -->
+    <div id="siteEditorModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto">
+        <div class="bg-white rounded-2xl card-shadow p-6 w-full max-w-4xl my-8 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">🎨 Site Editor <span class="text-sm bg-red-500 text-white px-2 py-1 rounded-full">Owner Only</span></h2>
+                <button onclick="closeSiteEditor()" class="text-gray-400 hover:text-gray-600 transition">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+            
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Editor Controls -->
+                <div class="space-y-4">
+                    <!-- Site Branding -->
+                    <div class="bg-gray-50 rounded-xl p-4">
+                        <h3 class="font-bold text-gray-800 mb-3 flex items-center gap-2">🏷️ Site Branding</h3>
+                        <div class="space-y-3">
+                            <div>
+                                <label class="block text-gray-700 text-sm font-medium mb-1">Site Name</label>
+                                <input type="text" id="siteName" class="w-full px-3 py-2 border border-gray-300 rounded-lg" placeholder="Login System Pro">
+                            </div>
+                            <div>
+                                <label class="block text-gray-700 text-sm font-medium mb-1">Site Logo Emoji</label>
+                                <input type="text" id="siteLogo" class="w-full px-3 py-2 border border-gray-300 rounded-lg" placeholder="🚀" maxlength="2">
+                            </div>
+                            <div>
+                                <label class="block text-gray-700 text-sm font-medium mb-1">Welcome Message</label>
+                                <input type="text" id="siteWelcome" class="w-full px-3 py-2 border border-gray-300 rounded-lg" placeholder="Welcome Back">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Colors -->
+                    <div class="bg-gray-50 rounded-xl p-4">
+                        <h3 class="font-bold text-gray-800 mb-3 flex items-center gap-2">🎨 Global Colors</h3>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-gray-700 text-sm font-medium mb-1">Background Start</label>
+                                <input type="color" id="siteBg1" value="#667eea" class="w-full h-10 rounded-lg cursor-pointer">
+                            </div>
+                            <div>
+                                <label class="block text-gray-700 text-sm font-medium mb-1">Background End</label>
+                                <input type="color" id="siteBg2" value="#764ba2" class="w-full h-10 rounded-lg cursor-pointer">
+                            </div>
+                            <div>
+                                <label class="block text-gray-700 text-sm font-medium mb-1">Primary Color</label>
+                                <input type="color" id="sitePrimary" value="#6366f1" class="w-full h-10 rounded-lg cursor-pointer">
+                            </div>
+                            <div>
+                                <label class="block text-gray-700 text-sm font-medium mb-1">Secondary Color</label>
+                                <input type="color" id="siteSecondary" value="#8b5cf6" class="w-full h-10 rounded-lg cursor-pointer">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Typography -->
+                    <div class="bg-gray-50 rounded-xl p-4">
+                        <h3 class="font-bold text-gray-800 mb-3 flex items-center gap-2">✏️ Typography</h3>
+                        <div class="space-y-3">
+                            <div>
+                                <label class="block text-gray-700 text-sm font-medium mb-1">Font Family</label>
+                                <select id="siteFont" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                                    <option value="Inter, system-ui, sans-serif">Inter (Default)</option>
+                                    <option value="'Poppins', sans-serif">Poppins</option>
+                                    <option value="'Roboto', sans-serif">Roboto</option>
+                                    <option value="'Montserrat', sans-serif">Montserrat</option>
+                                    <option value="'Playfair Display', serif">Playfair Display</option>
+                                    <option value="'Space Grotesk', sans-serif">Space Grotesk</option>
+                                    <option value="'JetBrains Mono', monospace">JetBrains Mono</option>
+                                    <option value="'Comic Sans MS', cursive">Comic Sans 😄</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Effects -->
+                    <div class="bg-gray-50 rounded-xl p-4">
+                        <h3 class="font-bold text-gray-800 mb-3 flex items-center gap-2">✨ Effects & Animations</h3>
+                        <div class="space-y-3">
+                            <div>
+                                <label class="block text-gray-700 text-sm font-medium mb-1">Background Pattern</label>
+                                <select id="siteBgPattern" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                                    <option value="none">None</option>
+                                    <option value="dots">Dots</option>
+                                    <option value="grid">Grid</option>
+                                    <option value="waves">Waves</option>
+                                    <option value="stars">Stars ✨</option>
+                                    <option value="particles">Floating Particles 🫧</option>
+                                </select>
+                            </div>
+                            <div class="flex flex-col gap-2">
+                                <label class="flex items-center gap-2">
+                                    <input type="checkbox" id="siteParticles" class="w-4 h-4 text-indigo-600">
+                                    <span class="text-gray-700 text-sm">Enable Floating Particles</span>
+                                </label>
+                                <label class="flex items-center gap-2">
+                                    <input type="checkbox" id="siteGlow" class="w-4 h-4 text-indigo-600">
+                                    <span class="text-gray-700 text-sm">Enable Neon Glow</span>
+                                </label>
+                                <label class="flex items-center gap-2">
+                                    <input type="checkbox" id="siteFloating" class="w-4 h-4 text-indigo-600">
+                                    <span class="text-gray-700 text-sm">Floating Cards Animation</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Card Style -->
+                    <div class="bg-gray-50 rounded-xl p-4">
+                        <h3 class="font-bold text-gray-800 mb-3 flex items-center gap-2">🃏 Card Style</h3>
+                        <div class="space-y-3">
+                            <div>
+                                <label class="block text-gray-700 text-sm font-medium mb-1">Card Style</label>
+                                <select id="siteCardStyle" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                                    <option value="solid">Solid White</option>
+                                    <option value="glass">Glassmorphism</option>
+                                    <option value="dark">Dark Mode</option>
+                                    <option value="gradient">Gradient</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-gray-700 text-sm font-medium mb-1">Border Radius</label>
+                                <input type="range" id="siteBorderRadius" min="0" max="30" value="16" class="w-full">
+                                <div class="flex justify-between text-xs text-gray-500">
+                                    <span>Square</span>
+                                    <span>Rounded</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Custom CSS -->
+                    <div class="bg-gray-50 rounded-xl p-4">
+                        <h3 class="font-bold text-gray-800 mb-3 flex items-center gap-2">💻 Custom CSS</h3>
+                        <textarea id="siteCustomCSS" class="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono text-sm" rows="4" placeholder="/* Add your custom CSS here */"></textarea>
+                    </div>
+                    
+                    <div class="flex gap-3">
+                        <button onclick="resetSiteSettings()" class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 py-3 rounded-lg font-semibold transition">
+                            🔄 Reset to Default
+                        </button>
+                        <button onclick="saveSiteSettings()" class="flex-1 bg-gradient-to-r from-red-500 to-rose-600 text-white py-3 rounded-lg font-semibold hover:opacity-90 transition">
+                            💾 Save Site Settings
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Live Preview -->
+                <div class="bg-gray-100 rounded-xl p-4 sticky top-0">
+                    <h3 class="font-bold text-gray-800 mb-3">📱 Live Preview</h3>
+                    <div id="sitePreview" class="rounded-xl overflow-hidden min-h-[500px]"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Particles Container -->
+    <div id="particlesContainer" class="particles hidden"></div>
+
+    <!-- Custom JavaScript -->
+    <script src="app.js"></script>
+</body>
+</html>
