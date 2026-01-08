@@ -184,3 +184,8 @@ body {
 ::-webkit-scrollbar-thumb:hover {
     background: #a1a1a1;
 }
+
+/* AI Assistant button disabled state */
+#aiApplyBtn:disabled {
+    filter: grayscale(0.2);
+}

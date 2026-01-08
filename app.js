@@ -30,8 +30,129 @@ let transferTargetUsername = null;
 let tempPageConfig = { buttons: [], sounds: [], socialLinks: [], images: [], embeds: [], textSections: [], stats: [] };
 let tempSecret = null;
 
-// Load users from localStorage
-function loadUsers() {
+// ==========================================
+// CLOUD SYNC (SUPABASE) - OPTIONAL
+// ==========================================
+
+const CLOUD_STORAGE_KEY = 'cloudSyncConfig';
+let cloudConfig = {
+    enabled: false,
+    supabaseUrl: '',
+    supabaseAnonKey: ''
+};
+
+function loadCloudConfig() {
+    try {
+        const raw = localStorage.getItem(CLOUD_STORAGE_KEY);
+        if (raw) cloudConfig = { ...cloudConfig, ...JSON.parse(raw) };
+    } catch (e) {
+        console.warn('Could not load cloud config:', e);
+    }
+}
+
+function saveCloudConfig() {
+    try {
+        localStorage.setItem(CLOUD_STORAGE_KEY, JSON.stringify(cloudConfig));
+    } catch (e) {
+        console.warn('Could not save cloud config:', e);
+    }
+}
+
+function isCloudEnabled() {
+    return !!(cloudConfig.enabled && cloudConfig.supabaseUrl && cloudConfig.supabaseAnonKey);
+}
+
+function parseCloudConfigFromUrl() {
+    // We support both hash and query param, but hash is easiest to share.
+    // Format: #cloud=BASE64(JSON)
+    try {
+        const hash = location.hash || '';
+        const m = hash.match(/cloud=([^&]+)/);
+        const q = new URLSearchParams(location.search);
+        const encoded = m?.[1] || q.get('cloud');
+        if (!encoded) return;
+
+        const json = atob(decodeURIComponent(encoded));
+        const cfg = JSON.parse(json);
+        if (cfg && typeof cfg === 'object') {
+            cloudConfig.enabled = !!cfg.enabled;
+            cloudConfig.supabaseUrl = cfg.supabaseUrl || '';
+            cloudConfig.supabaseAnonKey = cfg.supabaseAnonKey || '';
+            saveCloudConfig();
+
+            // Clean the URL (optional) - keep it simple for GitHub Pages
+            // location.hash = '';
+        }
+    } catch (e) {
+        console.warn('Could not parse cloud config from URL:', e);
+    }
+}
+
+function supabaseRestUrl(path) {
+    return cloudConfig.supabaseUrl.replace(/\/$/, '') + '/rest/v1/' + path.replace(/^\//, '');
+}
+
+async function supabaseFetch(path, opts = {}) {
+    const headers = {
+        apikey: cloudConfig.supabaseAnonKey,
+        Authorization: `Bearer ${cloudConfig.supabaseAnonKey}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=representation',
+        ...(opts.headers || {})
+    };
+
+    const res = await fetch(supabaseRestUrl(path), {
+        ...opts,
+        headers
+    });
+
+    if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(`Supabase REST error (${res.status}): ${txt}`);
+    }
+
+    // Some responses can be empty
+    const text = await res.text();
+    return text ? JSON.parse(text) : null;
+}
+
+async function cloudLoadUsers() {
+    // Table: users
+    // Return all users
+    const rows = await supabaseFetch('users?select=*');
+    return Array.isArray(rows) ? rows : [];
+}
+
+async function cloudUpsertUser(user) {
+    // Requires a unique constraint on username
+    const payload = {
+        name: user.name,
+        username: user.username,
+        password: user.password,
+        role: user.role,
+        twoFactorEnabled: !!user.twoFactorEnabled,
+        twoFactorSecret: user.twoFactorSecret,
+        pageConfig: user.pageConfig || null
+    };
+
+    const rows = await supabaseFetch('users', {
+        method: 'POST',
+        headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+        body: JSON.stringify(payload)
+    });
+
+    return rows?.[0] || null;
+}
+
+async function cloudDeleteUserByUsername(username) {
+    await supabaseFetch(`users?username=eq.${encodeURIComponent(username)}`, {
+        method: 'DELETE'
+    });
+}
+
+// Load users (Local or Cloud)
+async function loadUsers() {
+    // Always load local cache first for snappy UI
     try {
         const stored = localStorage.getItem('users');
         users = stored ? JSON.parse(stored) : [];
@@ -40,7 +161,24 @@ function loadUsers() {
         console.error('Error loading users:', e);
         users = [];
     }
-    
+
+    // If cloud is enabled, try to pull the shared user list
+    if (isCloudEnabled()) {
+        try {
+            const cloudUsers = await cloudLoadUsers();
+            users = Array.isArray(cloudUsers) ? cloudUsers : [];
+        } catch (e) {
+            console.warn('Cloud users fetch failed. Falling back to local users.', e);
+        }
+    }
+
+    normalizeAndEnsureSystemUsers();
+
+    // Save into local cache (works for both modes as a mirror)
+    saveUsers();
+}
+
+function normalizeAndEnsureSystemUsers() {
     // SECURITY: Remove any fake owners (only 'gamerking' username can be owner)
     users.forEach((user, index) => {
         if (user.role === 'owner' && user.username !== 'gamerking') {
@@ -48,7 +186,7 @@ function loadUsers() {
             users[index].role = 'user';
         }
     });
-    
+
     // Ensure owner exists with correct role
     const ownerIndex = users.findIndex(u => u.username === 'gamerking');
     if (ownerIndex === -1) {
@@ -60,10 +198,10 @@ function loadUsers() {
             twoFactorEnabled: false,
             twoFactorSecret: null,
             pageConfig: {
-                title: 'GamerKing\'s Page',
+                title: "GamerKing's Page",
                 bgColor: '#dc2626',
                 bgColor2: '#991b1b',
-                bio: 'Welcome to the GamerKing\'s page! 👑',
+                bio: "Welcome to the GamerKing's page! 👑",
                 buttons: [],
                 sounds: [],
                 socialLinks: [],
@@ -76,11 +214,10 @@ function loadUsers() {
     } else {
         users[ownerIndex].role = 'owner';
     }
-    saveUsers();
-    
+
     // Ensure admin exists
-    const adminExists = users.some(u => u.username === 'admin');
-    if (!adminExists) {
+    const adminIndex = users.findIndex(u => u.username === 'admin');
+    if (adminIndex === -1) {
         users.push({
             name: 'Admin',
             username: 'admin',
@@ -89,7 +226,7 @@ function loadUsers() {
             twoFactorEnabled: false,
             twoFactorSecret: null,
             pageConfig: {
-                title: 'Admin\'s Page',
+                title: "Admin's Page",
                 bgColor: '#667eea',
                 bgColor2: '#764ba2',
                 bio: 'Welcome to my page!',
@@ -102,16 +239,27 @@ function loadUsers() {
                 stats: []
             }
         });
-        saveUsers();
     }
 }
 
-// Save users to localStorage
+// Save users to localStorage (always cache)
 function saveUsers() {
     try {
         localStorage.setItem('users', JSON.stringify(users));
     } catch (e) {
         console.error('Error saving users:', e);
+    }
+}
+
+async function saveUsersCloudMirror() {
+    if (!isCloudEnabled()) return;
+    // Upsert system users + any changed users
+    for (const u of users) {
+        try {
+            await cloudUpsertUser(u);
+        } catch (e) {
+            console.warn('Cloud upsert failed for', u?.username, e);
+        }
     }
 }
 
@@ -140,10 +288,20 @@ function saveCurrentUser() {
 }
 
 // Initialize on page load
-function initApp() {
-    loadUsers();
+async function initApp() {
+    // Load cloud config and allow one-click setup via share link
+    loadCloudConfig();
+    parseCloudConfigFromUrl();
+
+    await loadUsers();
     loadCurrentUser();
-    
+
+    // If cloud is enabled, ensure system users exist in cloud (best-effort)
+    if (isCloudEnabled()) {
+        // Mirror local normalized list to cloud
+        saveUsersCloudMirror().catch(() => {});
+    }
+
     if (currentUser) {
         const freshUser = users.find(u => u.username === currentUser.username);
         if (freshUser) {
@@ -160,7 +318,7 @@ function initApp() {
     }
 }
 
-window.onload = initApp;
+window.onload = () => { initApp(); };
 
 // ==========================================
 // NAVIGATION FUNCTIONS
@@ -184,10 +342,40 @@ function showDashboard() {
     updateDashboard();
 }
 
-function showAdminPanel() {
+async function showAdminPanel() {
     hideAll();
     document.getElementById('adminPanel').classList.remove('hidden');
+
+    // Refresh users list from cloud if enabled
+    await refreshUsersForPanel();
     renderUsersList();
+    updateOwnerPanelBadges();
+}
+
+async function refreshUsersForPanel() {
+    // Ensure latest list
+    await loadUsers();
+}
+
+function updateOwnerPanelBadges() {
+    const badge = document.getElementById('storageModeBadge');
+    const notice = document.getElementById('storageNotice');
+
+    if (badge) {
+        badge.textContent = isCloudEnabled() ? 'Storage: Cloud' : 'Storage: Local';
+        badge.className = isCloudEnabled()
+            ? 'text-xs bg-emerald-500/20 px-2 py-1 rounded-full font-semibold'
+            : 'text-xs bg-white/20 px-2 py-1 rounded-full font-semibold';
+    }
+
+    if (notice) {
+        if (!isCloudEnabled()) {
+            notice.innerHTML = `⚠️ <b>Local-only mode:</b> accounts are saved per-device in <span class="font-mono">localStorage</span>. Your friend’s account won’t appear here unless you enable <b>Cloud Sync</b> (Supabase).`;
+            notice.classList.remove('hidden');
+        } else {
+            notice.classList.add('hidden');
+        }
+    }
 }
 
 function hideAll() {
@@ -200,6 +388,8 @@ function hideAll() {
 
 function updateDashboard() {
     const user = users.find(u => u.username === currentUser.username) || currentUser;
+    // If Owner Panel exists, keep its storage badge in sync
+    updateOwnerPanelBadges();
     document.getElementById('userName').textContent = user.name;
     document.getElementById('profileName').textContent = user.name;
     document.getElementById('profileUsername').textContent = user.username;
@@ -367,6 +557,11 @@ function register() {
     
     users.push(newUser);
     saveUsers();
+
+    // Cloud mirror
+    if (isCloudEnabled()) {
+        cloudUpsertUser(newUser).catch(err => console.warn('Cloud register upsert failed:', err));
+    }
     
     successDiv.textContent = 'Account created! Redirecting...';
     successDiv.classList.remove('hidden');
@@ -450,6 +645,7 @@ function enable2FA() {
         users[userIndex].twoFactorEnabled = true;
         users[userIndex].twoFactorSecret = tempSecret;
         saveUsers();
+        if (isCloudEnabled()) cloudUpsertUser(users[userIndex]).catch(()=>{});
         
         currentUser = users[userIndex];
         saveCurrentUser();
@@ -468,6 +664,7 @@ function disable2FA() {
     users[userIndex].twoFactorEnabled = false;
     users[userIndex].twoFactorSecret = null;
     saveUsers();
+    if (isCloudEnabled()) cloudUpsertUser(users[userIndex]).catch(()=>{});
     
     currentUser = users[userIndex];
     saveCurrentUser();
@@ -557,6 +754,7 @@ function saveProfile() {
     users[userIndex].username = username;
     if (newPassword) users[userIndex].password = newPassword;
     saveUsers();
+    if (isCloudEnabled()) cloudUpsertUser(users[userIndex]).catch(()=>{});
     
     currentUser = users[userIndex];
     saveCurrentUser();
@@ -577,8 +775,10 @@ function closeDeleteModal() {
 }
 
 function deleteAccount() {
-    users = users.filter(u => u.username !== currentUser.username);
+    const deletedUsername = currentUser.username;
+    users = users.filter(u => u.username !== deletedUsername);
     saveUsers();
+    if (isCloudEnabled()) cloudDeleteUserByUsername(deletedUsername).catch(()=>{});
     currentUser = null;
     saveCurrentUser();
     closeDeleteModal();
@@ -694,6 +894,10 @@ function confirmTransferOwnership() {
     users[newOwnerIndex].role = 'owner';
     
     saveUsers();
+    if (isCloudEnabled()) {
+        cloudUpsertUser(users[currentOwnerIndex]).catch(()=>{});
+        cloudUpsertUser(users[newOwnerIndex]).catch(()=>{});
+    }
     
     currentUser = users[currentOwnerIndex];
     saveCurrentUser();
@@ -733,6 +937,7 @@ function toggleRole(username) {
     
     users[userIndex].role = newRole;
     saveUsers();
+    if (isCloudEnabled()) cloudUpsertUser(users[userIndex]).catch(()=>{});
     
     if (username === currentUser.username) {
         currentUser.role = users[userIndex].role;
@@ -1199,6 +1404,7 @@ function savePageConfig() {
         stats: tempPageConfig.stats
     };
     saveUsers();
+    if (isCloudEnabled()) cloudUpsertUser(users[userIndex]).catch(()=>{});
     
     if (editingUserUsername === currentUser.username) {
         currentUser.pageConfig = users[userIndex].pageConfig;
@@ -1409,11 +1615,14 @@ document.addEventListener('keydown', function(e) {
         closeUserPage();
         closeTransferModal();
         closeSiteEditor();
+        closeAIAssistant();
+        closePublishModal();
+        closeCloudSync();
     }
 });
 
 document.addEventListener('DOMContentLoaded', function() {
-    ['editProfileModal', 'deleteModal', 'twoFactorModal', 'pageEditorModal', 'transferOwnerModal', 'siteEditorModal'].forEach(id => {
+    ['editProfileModal', 'deleteModal', 'twoFactorModal', 'pageEditorModal', 'transferOwnerModal', 'siteEditorModal', 'aiAssistantModal', 'publishModal', 'cloudSyncModal'].forEach(id => {
         const el = document.getElementById(id);
         if (el) {
             el.addEventListener('click', function(e) {
@@ -1773,4 +1982,803 @@ function resetSiteSettings() {
     openSiteEditor();
     
     alert('🔄 Site settings reset to default!');
+}
+
+// ==========================================
+// CLOUD SYNC UI (SUPABASE)
+// ==========================================
+
+function getCloudSQL() {
+    return [
+        '-- DEMO ONLY SQL (Supabase) — run in SQL editor',
+        '-- Creates a shared users table and disables RLS for quick testing.',
+        '-- DO NOT use this as-is for production authentication.',
+        '',
+        'create table if not exists public.users (',
+        '  id bigint generated by default as identity primary key,',
+        '  name text,',
+        '  username text unique,',
+        '  password text,',
+        '  role text,',
+        '  twoFactorEnabled boolean default false,',
+        '  twoFactorSecret text,',
+        '  pageConfig jsonb,',
+        '  created_at timestamp with time zone default now()',
+        ');',
+        '',
+        '-- Allow anon access for the demo:',
+        'alter table public.users disable row level security;',
+        ''
+    ].join('\n');
+}
+
+function setCloudSyncMsg(text, kind = 'info') {
+    const el = document.getElementById('cloudSyncMsg');
+    if (!el) return;
+    el.textContent = text;
+    el.classList.remove('hidden');
+    el.className = kind === 'error'
+        ? 'bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg text-sm'
+        : (kind === 'success'
+            ? 'bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-lg text-sm'
+            : 'bg-indigo-50 border border-indigo-200 text-indigo-800 px-4 py-3 rounded-lg text-sm');
+}
+
+function updateCloudModalUI() {
+    const enabledEl = document.getElementById('cloudEnabled');
+    const urlEl = document.getElementById('cloudSupabaseUrl');
+    const keyEl = document.getElementById('cloudSupabaseAnonKey');
+    const statusEl = document.getElementById('cloudStatus');
+    const shareEl = document.getElementById('cloudShareLink');
+    const sqlEl = document.getElementById('cloudSql');
+
+    if (sqlEl) sqlEl.value = getCloudSQL();
+
+    if (enabledEl) enabledEl.checked = !!cloudConfig.enabled;
+    if (urlEl) urlEl.value = cloudConfig.supabaseUrl || '';
+    if (keyEl) keyEl.value = cloudConfig.supabaseAnonKey || '';
+
+    if (statusEl) {
+        statusEl.textContent = isCloudEnabled() ? 'Configured' : 'Not configured';
+        statusEl.className = isCloudEnabled()
+            ? 'text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded-full'
+            : 'text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded-full';
+    }
+
+    if (shareEl) {
+        shareEl.value = buildCloudShareLink();
+    }
+}
+
+function buildCloudShareLink() {
+    const cfg = {
+        enabled: true,
+        supabaseUrl: (cloudConfig.supabaseUrl || '').trim(),
+        supabaseAnonKey: (cloudConfig.supabaseAnonKey || '').trim()
+    };
+
+    if (!cfg.supabaseUrl || !cfg.supabaseAnonKey) return '';
+
+    const encoded = encodeURIComponent(btoa(JSON.stringify(cfg)));
+    // Use hash so GitHub pages doesn't strip query.
+    const base = location.origin + location.pathname;
+    return `${base}#cloud=${encoded}`;
+}
+
+function openCloudSync() {
+    if (!currentUser || currentUser.role !== 'owner') {
+        alert('Only the Owner can configure Cloud Sync.');
+        return;
+    }
+
+    loadCloudConfig();
+    updateCloudModalUI();
+
+    const modal = document.getElementById('cloudSyncModal');
+    if (modal) modal.classList.remove('hidden');
+
+    const msg = document.getElementById('cloudSyncMsg');
+    if (msg) msg.classList.add('hidden');
+}
+
+function closeCloudSync() {
+    const modal = document.getElementById('cloudSyncModal');
+    if (modal) modal.classList.add('hidden');
+}
+
+function saveCloudSync() {
+    const enabledEl = document.getElementById('cloudEnabled');
+    const urlEl = document.getElementById('cloudSupabaseUrl');
+    const keyEl = document.getElementById('cloudSupabaseAnonKey');
+
+    cloudConfig.enabled = !!enabledEl?.checked;
+    cloudConfig.supabaseUrl = (urlEl?.value || '').trim();
+    cloudConfig.supabaseAnonKey = (keyEl?.value || '').trim();
+
+    saveCloudConfig();
+    updateCloudModalUI();
+
+    setCloudSyncMsg('Saved Cloud Sync settings. Click “Test Connection”, then refresh the Owner Panel.', 'success');
+}
+
+function disableCloudSync() {
+    cloudConfig.enabled = false;
+    saveCloudConfig();
+    updateCloudModalUI();
+    setCloudSyncMsg('Cloud Sync disabled. The app is now in Local-only mode.', 'success');
+    updateOwnerPanelBadges();
+}
+
+async function testCloudSync() {
+    try {
+        const enabledEl = document.getElementById('cloudEnabled');
+        const urlEl = document.getElementById('cloudSupabaseUrl');
+        const keyEl = document.getElementById('cloudSupabaseAnonKey');
+
+        cloudConfig.enabled = !!enabledEl?.checked;
+        cloudConfig.supabaseUrl = (urlEl?.value || '').trim();
+        cloudConfig.supabaseAnonKey = (keyEl?.value || '').trim();
+
+        if (!isCloudEnabled()) {
+            setCloudSyncMsg('Please enable Cloud Sync and fill Supabase URL + Anon key first.', 'error');
+            return;
+        }
+
+        // Try a simple select
+        const rows = await cloudLoadUsers();
+        setCloudSyncMsg(`Connection OK. Found ${rows.length} users in the cloud database.`, 'success');
+
+        // Mirror local normalized users to cloud (ensures owner/admin are there)
+        await saveUsersCloudMirror();
+
+        updateCloudModalUI();
+        updateOwnerPanelBadges();
+    } catch (e) {
+        console.error(e);
+        setCloudSyncMsg(e?.message || String(e), 'error');
+    }
+}
+
+async function copyCloudShareLink() {
+    const link = document.getElementById('cloudShareLink')?.value || '';
+    if (!link) {
+        setCloudSyncMsg('No share link yet. Fill Supabase URL + Anon key first.', 'error');
+        return;
+    }
+
+    try {
+        await navigator.clipboard.writeText(link);
+        setCloudSyncMsg('Share link copied! Send it to your friend and have them open it once.', 'success');
+    } catch {
+        setCloudSyncMsg('Could not copy automatically. Select and copy the link manually.', 'error');
+    }
+}
+
+async function copyCloudSQL() {
+    const sql = getCloudSQL();
+    try {
+        await navigator.clipboard.writeText(sql);
+        setCloudSyncMsg('SQL copied. Paste into Supabase SQL Editor and run it.', 'success');
+    } catch {
+        const ta = document.getElementById('cloudSql');
+        if (ta) {
+            ta.focus();
+            ta.select();
+        }
+        setCloudSyncMsg('Could not auto-copy. The SQL is selected—copy it manually.', 'error');
+    }
+}
+
+// ==========================================
+// PUBLISH / DEPLOY HELPERS
+// ==========================================
+
+function openPublishModal() {
+    // Owner-only button exists in Owner Panel, but keep this safe.
+    if (!currentUser || (currentUser.role !== 'owner' && currentUser.role !== 'admin')) {
+        alert('You must be logged in as Owner/Admin to view deployment info.');
+        return;
+    }
+
+    const modal = document.getElementById('publishModal');
+    if (modal) modal.classList.remove('hidden');
+}
+
+function closePublishModal() {
+    const modal = document.getElementById('publishModal');
+    if (modal) modal.classList.add('hidden');
+}
+
+async function copyDeployChecklist() {
+    const text = [
+        'DEPLOY CHECKLIST',
+        '',
+        '1) Pick a host: GitHub Pages / Netlify / Vercel / Cloudflare Pages',
+        '2) Upload files: index.html, styles.css, app.js',
+        '3) Deploy and test the generated URL',
+        '',
+        'CUSTOM DOMAIN (www.yourdomain.com)',
+        '4) Buy the domain (Namecheap/GoDaddy/Cloudflare)',
+        '5) Add domain in your hosting dashboard',
+        '6) DNS:',
+        '   - www -> CNAME (value provided by host)',
+        '   - root/apex -> A/ALIAS/ANAME (depends on host/provider)',
+        '7) Enable HTTPS (Let\'s Encrypt, usually automatic)',
+        '',
+        'IMPORTANT:',
+        '- This demo stores users in localStorage (per browser).',
+        '- For real accounts across devices, you need a backend + database.'
+    ].join('\n');
+
+    try {
+        await navigator.clipboard.writeText(text);
+        alert('Checklist copied to clipboard!');
+    } catch {
+        // Fallback
+        const ta = document.getElementById('deployChecklist');
+        if (ta) {
+            ta.classList.remove('hidden');
+            ta.value = text;
+            ta.focus();
+            ta.select();
+        }
+        alert('Could not auto-copy. The checklist was placed in a text box—copy it manually.');
+    }
+}
+
+// ==========================================
+// AI ASSISTANT (OFFLINE + OPTIONAL REAL API)
+// ==========================================
+
+const AI_STORAGE_KEY = 'aiAssistantSettings';
+
+function loadAISettings() {
+    try {
+        const raw = localStorage.getItem(AI_STORAGE_KEY);
+        return raw ? JSON.parse(raw) : {};
+    } catch {
+        return {};
+    }
+}
+
+function saveAISettings(next) {
+    try {
+        localStorage.setItem(AI_STORAGE_KEY, JSON.stringify(next));
+    } catch (e) {
+        console.warn('Could not save AI settings:', e);
+    }
+}
+
+function clearAIKey() {
+    const settings = loadAISettings();
+    delete settings.apiKey;
+    saveAISettings(settings);
+    const keyEl = document.getElementById('aiApiKey');
+    if (keyEl) keyEl.value = '';
+    const res = document.getElementById('aiResult');
+    if (res) {
+        res.textContent = 'Saved key cleared.';
+        res.classList.remove('hidden');
+    }
+}
+
+function updateAIModeBadge() {
+    const useReal = document.getElementById('aiUseReal')?.checked;
+    const badge = document.getElementById('aiModeBadge');
+    if (badge) {
+        badge.textContent = useReal ? 'Real AI (API)' : 'Offline helper';
+        badge.className = useReal
+            ? 'text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded-full'
+            : 'text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded-full';
+    }
+
+    const footer = document.getElementById('aiFooterNote');
+    const provider = document.getElementById('aiProvider')?.value || 'openrouter';
+    if (footer) {
+        footer.textContent = useReal
+            ? `Real AI mode enabled (${provider}). Tip: OpenRouter usually works in-browser. Some providers (like OpenAI direct) may require a backend proxy due to CORS.`
+            : 'Tip: Open the Site Editor first, then use this assistant. (Offline mode works without any API key.)';
+    }
+}
+
+function openAIAssistant() {
+    if (!currentUser || currentUser.role !== 'owner') {
+        alert('Only the Owner can use the AI Assistant!');
+        return;
+    }
+
+    // Ensure the Site Editor is open so the assistant can apply settings.
+    const siteEditor = document.getElementById('siteEditorModal');
+    if (siteEditor.classList.contains('hidden')) {
+        openSiteEditor();
+    }
+
+    // Load persisted AI settings
+    const settings = loadAISettings();
+    const useRealEl = document.getElementById('aiUseReal');
+    const providerEl = document.getElementById('aiProvider');
+    const modelEl = document.getElementById('aiModel');
+    const keyEl = document.getElementById('aiApiKey');
+    const rememberEl = document.getElementById('aiRememberKey');
+
+    if (useRealEl) useRealEl.checked = !!settings.useReal;
+    if (providerEl) providerEl.value = settings.provider || 'openrouter';
+    if (modelEl) modelEl.value = settings.model || 'openai/gpt-4o-mini';
+    if (rememberEl) rememberEl.checked = !!settings.rememberKey;
+    if (keyEl) keyEl.value = (settings.rememberKey && settings.apiKey) ? settings.apiKey : '';
+
+    updateAIModeBadge();
+
+    // Wire change handlers once
+    if (useRealEl && !useRealEl.dataset.bound) {
+        useRealEl.dataset.bound = '1';
+        useRealEl.addEventListener('change', () => {
+            const s = loadAISettings();
+            s.useReal = useRealEl.checked;
+            saveAISettings(s);
+            updateAIModeBadge();
+        });
+    }
+
+    if (providerEl && !providerEl.dataset.bound) {
+        providerEl.dataset.bound = '1';
+        providerEl.addEventListener('change', () => {
+            const s = loadAISettings();
+            s.provider = providerEl.value;
+            saveAISettings(s);
+            updateAIModeBadge();
+        });
+    }
+
+    if (modelEl && !modelEl.dataset.bound) {
+        modelEl.dataset.bound = '1';
+        modelEl.addEventListener('input', () => {
+            const s = loadAISettings();
+            s.model = modelEl.value;
+            saveAISettings(s);
+        });
+    }
+
+    if (rememberEl && !rememberEl.dataset.bound) {
+        rememberEl.dataset.bound = '1';
+        rememberEl.addEventListener('change', () => {
+            const s = loadAISettings();
+            s.rememberKey = rememberEl.checked;
+            if (!rememberEl.checked) delete s.apiKey;
+            saveAISettings(s);
+        });
+    }
+
+    if (keyEl && !keyEl.dataset.bound) {
+        keyEl.dataset.bound = '1';
+        keyEl.addEventListener('input', () => {
+            const remember = document.getElementById('aiRememberKey')?.checked;
+            if (!remember) return;
+            const s = loadAISettings();
+            s.apiKey = keyEl.value;
+            saveAISettings(s);
+        });
+    }
+
+    // Show modal
+    document.getElementById('aiAssistantModal').classList.remove('hidden');
+
+    const promptEl = document.getElementById('aiPrompt');
+    if (promptEl && !promptEl.value) {
+        promptEl.value = 'Make it dark with glass cards, neon glow, and particles.';
+    }
+    promptEl?.focus();
+
+    const resultEl = document.getElementById('aiResult');
+    if (resultEl) resultEl.classList.add('hidden');
+}
+
+function closeAIAssistant() {
+    const modal = document.getElementById('aiAssistantModal');
+    if (modal) modal.classList.add('hidden');
+}
+
+function setAIPrompt(text) {
+    const promptEl = document.getElementById('aiPrompt');
+    if (promptEl) {
+        promptEl.value = text;
+        promptEl.focus();
+    }
+}
+
+function setAIApplyLoading(isLoading, label = 'Apply to Site Editor') {
+    const btn = document.getElementById('aiApplyBtn');
+    if (!btn) return;
+    btn.disabled = isLoading;
+    btn.textContent = isLoading ? 'Thinking…' : label;
+    btn.classList.toggle('opacity-60', isLoading);
+    btn.classList.toggle('cursor-not-allowed', isLoading);
+}
+
+function applySiteSettingsPatch(patch) {
+    // Helpers
+    const setVal = (id, value) => {
+        const el = document.getElementById(id);
+        if (el && value !== undefined && value !== null) el.value = value;
+    };
+    const setChecked = (id, value) => {
+        const el = document.getElementById(id);
+        if (el && typeof value === 'boolean') el.checked = value;
+    };
+
+    // Colors / branding
+    setVal('siteName', patch.siteName);
+    setVal('siteLogo', patch.siteLogo);
+    setVal('siteWelcome', patch.siteWelcome);
+
+    setVal('siteBg1', patch.siteBg1);
+    setVal('siteBg2', patch.siteBg2);
+    setVal('sitePrimary', patch.sitePrimary);
+    setVal('siteSecondary', patch.siteSecondary);
+
+    // Typography
+    setVal('siteFont', patch.siteFont);
+
+    // Pattern/effects
+    setVal('siteBgPattern', patch.siteBgPattern);
+    setChecked('siteParticles', patch.siteParticles);
+    setChecked('siteGlow', patch.siteGlow);
+    setChecked('siteFloating', patch.siteFloating);
+
+    // Cards
+    setVal('siteCardStyle', patch.siteCardStyle);
+    if (typeof patch.siteBorderRadius === 'number') setVal('siteBorderRadius', patch.siteBorderRadius);
+
+    // Custom CSS
+    if (typeof patch.siteCustomCSS === 'string') setVal('siteCustomCSS', patch.siteCustomCSS);
+
+    // Update preview
+    updateSitePreview();
+}
+
+function offlineAIPrompt(promptRaw) {
+    const prompt = (promptRaw || '').toLowerCase();
+
+    // Helpers
+    const setVal = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.value = value;
+    };
+    const setChecked = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.checked = value;
+    };
+
+    const applied = [];
+
+    const wantsDark = prompt.includes('dark') || prompt.includes('midnight');
+    const wantsLight = prompt.includes('light') || prompt.includes('minimal') || prompt.includes('clean');
+
+    if (prompt.includes('sunset')) {
+        setVal('siteBg1', '#ff7e5f');
+        setVal('siteBg2', '#feb47b');
+        setVal('sitePrimary', '#f97316');
+        setVal('siteSecondary', '#ec4899');
+        applied.push('Sunset colors');
+    }
+
+    if (prompt.includes('ocean') || prompt.includes('sea')) {
+        setVal('siteBg1', '#0ea5e9');
+        setVal('siteBg2', '#1e3a8a');
+        setVal('sitePrimary', '#22c55e');
+        setVal('siteSecondary', '#06b6d4');
+        applied.push('Ocean colors');
+    }
+
+    if (prompt.includes('forest') || prompt.includes('nature')) {
+        setVal('siteBg1', '#064e3b');
+        setVal('siteBg2', '#14532d');
+        setVal('sitePrimary', '#22c55e');
+        setVal('siteSecondary', '#84cc16');
+        applied.push('Forest colors');
+    }
+
+    if (prompt.includes('cyberpunk') || (wantsDark && (prompt.includes('neon') || prompt.includes('glow')))) {
+        setVal('siteBg1', '#0b1020');
+        setVal('siteBg2', '#2b124c');
+        setVal('sitePrimary', '#22d3ee');
+        setVal('siteSecondary', '#a78bfa');
+        applied.push('Cyberpunk palette');
+    }
+
+    if (wantsDark && !prompt.includes('sunset') && !prompt.includes('ocean') && !prompt.includes('forest') && !prompt.includes('cyberpunk')) {
+        setVal('siteBg1', '#0b1020');
+        setVal('siteBg2', '#111827');
+        setVal('sitePrimary', '#6366f1');
+        setVal('siteSecondary', '#8b5cf6');
+        applied.push('Dark background');
+    }
+
+    if (wantsLight && !wantsDark) {
+        setVal('siteBg1', '#eef2ff');
+        setVal('siteBg2', '#ffffff');
+        setVal('sitePrimary', '#4f46e5');
+        setVal('siteSecondary', '#7c3aed');
+        applied.push('Light/minimal background');
+    }
+
+    if (prompt.includes('glass')) {
+        setVal('siteCardStyle', 'glass');
+        applied.push('Glass cards');
+    } else if (prompt.includes('gradient cards') || (prompt.includes('gradient') && prompt.includes('cards'))) {
+        setVal('siteCardStyle', 'gradient');
+        applied.push('Gradient cards');
+    } else if (wantsDark && prompt.includes('dark mode')) {
+        setVal('siteCardStyle', 'dark');
+        applied.push('Dark cards');
+    } else if (wantsLight) {
+        setVal('siteCardStyle', 'solid');
+        applied.push('Solid cards');
+    }
+
+    if (prompt.includes('neon') || prompt.includes('glow')) {
+        setChecked('siteGlow', true);
+        applied.push('Neon glow');
+    }
+
+    if (prompt.includes('no glow') || prompt.includes('disable glow')) {
+        setChecked('siteGlow', false);
+        applied.push('Glow disabled');
+    }
+
+    if (prompt.includes('particles')) {
+        setChecked('siteParticles', true);
+        applied.push('Particles enabled');
+    }
+
+    if (prompt.includes('no particles') || prompt.includes('disable particles')) {
+        setChecked('siteParticles', false);
+        applied.push('Particles disabled');
+    }
+
+    if (prompt.includes('floating')) {
+        setChecked('siteFloating', true);
+        applied.push('Floating cards');
+    }
+
+    if (prompt.includes('no floating') || prompt.includes('disable floating')) {
+        setChecked('siteFloating', false);
+        applied.push('Floating disabled');
+    }
+
+    const patterns = ['dots', 'grid', 'waves', 'stars', 'none'];
+    const picked = patterns.find(p => prompt.includes(p));
+    if (picked) {
+        setVal('siteBgPattern', picked);
+        applied.push(`Pattern: ${picked}`);
+    }
+
+    if (prompt.includes('poppins')) {
+        setVal('siteFont', "'Poppins', sans-serif");
+        applied.push('Font: Poppins');
+    } else if (prompt.includes('roboto')) {
+        setVal('siteFont', "'Roboto', sans-serif");
+        applied.push('Font: Roboto');
+    } else if (prompt.includes('montserrat')) {
+        setVal('siteFont', "'Montserrat', sans-serif");
+        applied.push('Font: Montserrat');
+    } else if (prompt.includes('playfair')) {
+        setVal('siteFont', "'Playfair Display', serif");
+        applied.push('Font: Playfair Display');
+    } else if (prompt.includes('space grotesk') || prompt.includes('grotesk')) {
+        setVal('siteFont', "'Space Grotesk', sans-serif");
+        applied.push('Font: Space Grotesk');
+    } else if (prompt.includes('jetbrains') || prompt.includes('mono')) {
+        setVal('siteFont', "'JetBrains Mono', monospace");
+        applied.push('Font: JetBrains Mono');
+    } else if (prompt.includes('comic')) {
+        setVal('siteFont', "'Comic Sans MS', cursive");
+        applied.push('Font: Comic Sans');
+    }
+
+    if (prompt.includes('rounded')) {
+        setVal('siteBorderRadius', 22);
+        applied.push('More rounded corners');
+    }
+    if (prompt.includes('square')) {
+        setVal('siteBorderRadius', 8);
+        applied.push('Sharper corners');
+    }
+
+    if (prompt.includes('no effects')) {
+        setChecked('siteGlow', false);
+        setChecked('siteParticles', false);
+        setChecked('siteFloating', false);
+        setVal('siteBgPattern', 'none');
+        applied.push('Effects disabled');
+    }
+
+    updateSitePreview();
+
+    return applied;
+}
+
+function safeJsonParse(str) {
+    try {
+        return JSON.parse(str);
+    } catch {
+        return null;
+    }
+}
+
+function stripJsonFromText(text) {
+    // Try to locate the first { ... } JSON object in a potentially chatty response.
+    if (!text) return '';
+    const start = text.indexOf('{');
+    const end = text.lastIndexOf('}');
+    if (start === -1 || end === -1 || end <= start) return text.trim();
+    return text.slice(start, end + 1).trim();
+}
+
+async function callRealAI(promptRaw) {
+    const provider = document.getElementById('aiProvider')?.value || 'openrouter';
+    const model = document.getElementById('aiModel')?.value || 'openai/gpt-4o-mini';
+    const apiKey = document.getElementById('aiApiKey')?.value || '';
+
+    if (!apiKey) {
+        throw new Error('Missing API key. Paste your key or turn off “Use real AI”.');
+    }
+
+    if (provider === 'openrouter') {
+        const url = 'https://openrouter.ai/api/v1/chat/completions';
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`,
+                // Optional but recommended by OpenRouter
+                'HTTP-Referer': location.origin,
+                'X-Title': 'Login System Pro - Site Editor'
+            },
+            body: JSON.stringify({
+                model,
+                temperature: 0.4,
+                messages: [
+                    {
+                        role: 'system',
+                        content: [
+                            'You are a UI theme assistant. Return ONLY JSON.',
+                            'The JSON schema is:',
+                            '{',
+                            '  "siteName": string (optional),',
+                            '  "siteLogo": string emoji (optional),',
+                            '  "siteWelcome": string (optional),',
+                            '  "siteBg1": "#RRGGBB" (optional),',
+                            '  "siteBg2": "#RRGGBB" (optional),',
+                            '  "sitePrimary": "#RRGGBB" (optional),',
+                            '  "siteSecondary": "#RRGGBB" (optional),',
+                            '  "siteFont": one of ["Inter, system-ui, sans-serif","\'Poppins\', sans-serif","\'Roboto\', sans-serif","\'Montserrat\', sans-serif","\'Playfair Display\', serif","\'Space Grotesk\', sans-serif","\'JetBrains Mono\', monospace","\'Comic Sans MS\', cursive"] (optional),',
+                            '  "siteBgPattern": one of ["none","dots","grid","waves","stars","particles"] (optional),',
+                            '  "siteParticles": boolean (optional),',
+                            '  "siteGlow": boolean (optional),',
+                            '  "siteFloating": boolean (optional),',
+                            '  "siteCardStyle": one of ["solid","glass","dark","gradient"] (optional),',
+                            '  "siteBorderRadius": number 0-30 (optional),',
+                            '  "siteCustomCSS": string (optional)',
+                            '}',
+                            'Do not include markdown fences. Do not include any explanation.'
+                        ].join('\n')
+                    },
+                    {
+                        role: 'user',
+                        content: `User request: ${promptRaw}`
+                    }
+                ]
+            })
+        });
+
+        if (!res.ok) {
+            const text = await res.text();
+            throw new Error(`OpenRouter error (${res.status}): ${text}`);
+        }
+
+        const data = await res.json();
+        const content = data?.choices?.[0]?.message?.content || '';
+        return content;
+    }
+
+    // OpenAI direct: may fail due to browser CORS.
+    if (provider === 'openai') {
+        const url = 'https://api.openai.com/v1/chat/completions';
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+                model: model.includes('/') ? model.split('/').pop() : model,
+                temperature: 0.4,
+                messages: [
+                    {
+                        role: 'system',
+                        content: 'Return ONLY JSON for site theme settings. No markdown, no explanation.'
+                    },
+                    {
+                        role: 'user',
+                        content: `Return JSON with keys like siteBg1, siteBg2, sitePrimary, siteSecondary, siteCardStyle, siteGlow, siteParticles, siteFloating, siteBgPattern, siteBorderRadius, siteFont. Request: ${promptRaw}`
+                    }
+                ]
+            })
+        });
+
+        if (!res.ok) {
+            const text = await res.text();
+            throw new Error(`OpenAI error (${res.status}): ${text}`);
+        }
+
+        const data = await res.json();
+        const content = data?.choices?.[0]?.message?.content || '';
+        return content;
+    }
+
+    throw new Error('Unknown AI provider');
+}
+
+async function applyAIPrompt() {
+    const promptRaw = document.getElementById('aiPrompt')?.value || '';
+    const useReal = document.getElementById('aiUseReal')?.checked;
+    const resultEl = document.getElementById('aiResult');
+
+    if (!promptRaw.trim()) {
+        if (resultEl) {
+            resultEl.textContent = 'Type a prompt first.';
+            resultEl.classList.remove('hidden');
+        }
+        return;
+    }
+
+    // Persist settings
+    const settings = loadAISettings();
+    settings.useReal = !!useReal;
+    settings.provider = document.getElementById('aiProvider')?.value || settings.provider || 'openrouter';
+    settings.model = document.getElementById('aiModel')?.value || settings.model || 'openai/gpt-4o-mini';
+    settings.rememberKey = document.getElementById('aiRememberKey')?.checked || false;
+    if (settings.rememberKey) {
+        settings.apiKey = document.getElementById('aiApiKey')?.value || settings.apiKey;
+    }
+    saveAISettings(settings);
+
+    setAIApplyLoading(true);
+
+    try {
+        if (useReal) {
+            const raw = await callRealAI(promptRaw);
+            const jsonText = stripJsonFromText(raw);
+            const patch = safeJsonParse(jsonText);
+            if (!patch || typeof patch !== 'object') {
+                throw new Error('AI did not return valid JSON. Try again or switch to Offline mode.');
+            }
+
+            applySiteSettingsPatch(patch);
+
+            if (resultEl) {
+                resultEl.textContent = 'Applied settings from real AI. Review in the Site Editor, then click “Save Site Settings”.';
+                resultEl.classList.remove('hidden');
+            }
+        } else {
+            const applied = offlineAIPrompt(promptRaw);
+            if (resultEl) {
+                const summary = applied.length ? applied.join(' • ') : 'No recognizable keywords found. Try: dark, glass, neon, particles, dots, stars, poppins, rounded.';
+                resultEl.textContent = 'Applied (offline): ' + summary;
+                resultEl.classList.remove('hidden');
+            }
+        }
+    } catch (err) {
+        console.error(err);
+        // Fallback to offline
+        const applied = offlineAIPrompt(promptRaw);
+        if (resultEl) {
+            resultEl.textContent = `Real AI failed: ${err?.message || err}. Applied offline fallback instead (${applied.length ? applied.join(' • ') : 'no matches'}).`;
+            resultEl.classList.remove('hidden');
+        }
+    } finally {
+        setAIApplyLoading(false);
+        updateAIModeBadge();
+    }
 }

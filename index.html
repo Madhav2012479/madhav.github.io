@@ -260,13 +260,24 @@
             <div class="bg-gradient-to-r from-red-600 to-rose-700 p-6 text-white">
                 <div class="flex justify-between items-center flex-wrap gap-4">
                     <div>
-                        <h1 class="text-2xl font-bold flex items-center gap-2">👑 Owner Panel</h1>
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <h1 class="text-2xl font-bold flex items-center gap-2">👑 Owner Panel</h1>
+                            <span id="storageModeBadge" class="text-xs bg-white/20 px-2 py-1 rounded-full font-semibold">Storage: Local</span>
+                        </div>
                         <p class="opacity-80">Supreme control over all users, pages & site</p>
                     </div>
                     <div class="flex gap-2 flex-wrap">
                         <button onclick="openSiteEditor()" class="bg-gradient-to-r from-purple-500 to-pink-500 hover:opacity-90 px-4 py-2 rounded-lg transition flex items-center gap-2 shadow-lg">
                             <span class="text-lg">🎨</span>
                             Edit Entire Site
+                        </button>
+                        <button onclick="openPublishModal()" class="bg-gradient-to-r from-emerald-500 to-teal-600 hover:opacity-90 px-4 py-2 rounded-lg transition flex items-center gap-2 shadow-lg">
+                            <span class="text-lg">🚀</span>
+                            Publish / Deploy
+                        </button>
+                        <button onclick="openCloudSync()" class="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg transition flex items-center gap-2">
+                            <span class="text-lg">☁️</span>
+                            Cloud Sync
                         </button>
                         <button onclick="showDashboard()" class="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg transition flex items-center gap-2">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -279,7 +290,8 @@
             </div>
             
             <div class="p-6">
-                <h3 class="text-lg font-bold text-gray-800 mb-4">All Users</h3>
+                <h3 class="text-lg font-bold text-gray-800 mb-2">All Users</h3>
+                <div id="storageNotice" class="mb-4 hidden bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3 rounded-xl text-sm"></div>
                 <div id="usersList" class="space-y-3"></div>
             </div>
         </div>
@@ -610,13 +622,19 @@
     <!-- Site Editor Modal (Owner Only) -->
     <div id="siteEditorModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto">
         <div class="bg-white rounded-2xl card-shadow p-6 w-full max-w-4xl my-8 max-h-[90vh] overflow-y-auto">
-            <div class="flex items-center justify-between mb-6">
+            <div class="flex items-center justify-between mb-6 gap-3 flex-wrap">
                 <h2 class="text-2xl font-bold text-gray-800 flex items-center gap-2">🎨 Site Editor <span class="text-sm bg-red-500 text-white px-2 py-1 rounded-full">Owner Only</span></h2>
-                <button onclick="closeSiteEditor()" class="text-gray-400 hover:text-gray-600 transition">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                    </svg>
-                </button>
+                <div class="flex items-center gap-2">
+                    <button onclick="openAIAssistant()" class="bg-gradient-to-r from-indigo-500 to-purple-600 hover:opacity-90 text-white px-3 py-2 rounded-lg transition flex items-center gap-2 shadow">
+                        <span>🤖</span>
+                        Edit with AI Assistant
+                    </button>
+                    <button onclick="closeSiteEditor()" class="text-gray-400 hover:text-gray-600 transition" aria-label="Close">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
             </div>
             
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -761,6 +779,226 @@
                     <h3 class="font-bold text-gray-800 mb-3">📱 Live Preview</h3>
                     <div id="sitePreview" class="rounded-xl overflow-hidden min-h-[500px]"></div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI Assistant Modal (Owner Only) -->
+    <div id="aiAssistantModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-2xl card-shadow p-6 w-full max-w-2xl">
+            <div class="flex items-center justify-between gap-3 mb-4">
+                <div>
+                    <h3 class="text-xl font-bold text-gray-800 flex items-center gap-2">🤖 AI Assistant <span id="aiModeBadge" class="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded-full">Offline helper</span></h3>
+                    <p class="text-sm text-gray-500">Describe what you want. I’ll translate it into Site Editor settings.</p>
+                </div>
+                <button onclick="closeAIAssistant()" class="text-gray-400 hover:text-gray-600 transition" aria-label="Close">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Real AI Controls -->
+            <div class="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-4">
+                <div class="flex items-center justify-between gap-3 flex-wrap">
+                    <label class="flex items-center gap-2 text-sm font-semibold text-gray-800">
+                        <input type="checkbox" id="aiUseReal" class="w-4 h-4 text-indigo-600">
+                        Use real AI (API)
+                    </label>
+                    <span class="text-xs text-gray-500">Recommended: OpenRouter (works from browser). OpenAI may need a proxy due to CORS.</span>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">Provider</label>
+                        <select id="aiProvider" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                            <option value="openrouter">OpenRouter</option>
+                            <option value="openai">OpenAI (may be blocked by CORS)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-600 mb-1">Model</label>
+                        <input id="aiModel" type="text" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono" placeholder="openai/gpt-4o-mini">
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-xs font-medium text-gray-600 mb-1">API Key</label>
+                        <input id="aiApiKey" type="password" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono" placeholder="Paste your API key">
+                        <div class="mt-2 flex items-center justify-between gap-3 flex-wrap">
+                            <label class="flex items-center gap-2 text-xs text-gray-600">
+                                <input type="checkbox" id="aiRememberKey" class="w-4 h-4 text-indigo-600">
+                                Remember key in this browser (localStorage)
+                            </label>
+                            <button id="aiClearKeyBtn" onclick="clearAIKey()" class="text-xs bg-gray-200 hover:bg-gray-300 text-gray-800 px-3 py-1.5 rounded-lg transition">
+                                Clear saved key
+                            </button>
+                        </div>
+                        <p class="mt-2 text-[11px] text-gray-500">Security note: This is a front-end demo. If you enable “remember”, your key is stored locally in your browser. Don’t use a production key on shared devices.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex flex-wrap gap-2 mb-4">
+                <button onclick="setAIPrompt('Make it dark neon cyberpunk with glass cards and particles')" class="text-sm bg-gray-100 hover:bg-gray-200 px-3 py-2 rounded-lg">Dark Neon Cyberpunk</button>
+                <button onclick="setAIPrompt('Make it a clean minimal light theme with rounded cards and no effects')" class="text-sm bg-gray-100 hover:bg-gray-200 px-3 py-2 rounded-lg">Clean Minimal</button>
+                <button onclick="setAIPrompt('Use a sunset gradient with glow and stars background')" class="text-sm bg-gray-100 hover:bg-gray-200 px-3 py-2 rounded-lg">Sunset + Stars</button>
+                <button onclick="setAIPrompt('Ocean blue theme with dots pattern and floating cards')" class="text-sm bg-gray-100 hover:bg-gray-200 px-3 py-2 rounded-lg">Ocean + Dots</button>
+            </div>
+
+            <textarea id="aiPrompt" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:border-indigo-500 font-mono text-sm" rows="5" placeholder="Example: Make it dark, glass cards, neon glow, add particles, use Poppins font, and rounded corners."></textarea>
+
+            <div id="aiResult" class="mt-3 hidden bg-indigo-50 border border-indigo-200 text-indigo-800 px-4 py-3 rounded-lg text-sm"></div>
+
+            <div class="flex flex-wrap gap-3 mt-5">
+                <button id="aiApplyBtn" onclick="applyAIPrompt()" class="flex-1 min-w-40 bg-gradient-to-r from-indigo-500 to-purple-600 hover:opacity-90 text-white py-3 rounded-lg font-semibold transition">
+                    Apply to Site Editor
+                </button>
+                <button onclick="closeAIAssistant()" class="flex-1 min-w-40 bg-gray-200 hover:bg-gray-300 text-gray-800 py-3 rounded-lg font-semibold transition">
+                    Close
+                </button>
+            </div>
+
+            <p id="aiFooterNote" class="mt-4 text-xs text-gray-500">Tip: Open the Site Editor first, then use this assistant. (Offline mode works without any API key.)</p>
+        </div>
+    </div>
+
+    <!-- Cloud Sync Modal -->
+    <div id="cloudSyncModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto">
+        <div class="bg-white rounded-2xl card-shadow p-6 w-full max-w-3xl my-8">
+            <div class="flex items-center justify-between gap-3 mb-4 flex-wrap">
+                <h3 class="text-2xl font-bold text-gray-800 flex items-center gap-2">☁️ Cloud Sync</h3>
+                <button onclick="closeCloudSync()" class="text-gray-400 hover:text-gray-600 transition" aria-label="Close">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="space-y-5 text-gray-700">
+                <div class="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                    <p class="font-semibold text-amber-900 mb-1">Why your friend’s account doesn’t show up</p>
+                    <p class="text-sm text-amber-800">Right now, in <span class="font-mono">Local</span> mode, users are stored in <span class="font-mono">localStorage</span>. That means every device/browser has its own separate user list. To share users across devices, enable Cloud Sync (Supabase).</p>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="md:col-span-2 flex items-center justify-between gap-3 flex-wrap bg-gray-50 border border-gray-200 rounded-xl p-4">
+                        <label class="flex items-center gap-2 font-semibold">
+                            <input id="cloudEnabled" type="checkbox" class="w-4 h-4 text-indigo-600">
+                            Enable Cloud Sync (shared users)
+                        </label>
+                        <span id="cloudStatus" class="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded-full">Not configured</span>
+                    </div>
+
+                    <div class="md:col-span-2">
+                        <label class="block text-xs font-medium text-gray-600 mb-1">Supabase Project URL</label>
+                        <input id="cloudSupabaseUrl" type="url" class="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono text-sm" placeholder="https://xxxx.supabase.co">
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-xs font-medium text-gray-600 mb-1">Supabase Anon Key</label>
+                        <input id="cloudSupabaseAnonKey" type="password" class="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono text-sm" placeholder="eyJ...">
+                        <p class="mt-1 text-[11px] text-gray-500">Anon key is public-ish, but this is still a demo. Don’t store real passwords like this in production.</p>
+                    </div>
+
+                    <div class="md:col-span-2">
+                        <label class="block text-xs font-medium text-gray-600 mb-1">Share link (auto-configures Cloud Sync for others)</label>
+                        <div class="flex gap-2 flex-wrap">
+                            <input id="cloudShareLink" type="text" readonly class="flex-1 min-w-60 px-3 py-2 border border-gray-300 rounded-lg font-mono text-xs bg-gray-50" value="">
+                            <button onclick="copyCloudShareLink()" class="bg-indigo-500 hover:bg-indigo-600 text-white px-4 py-2 rounded-lg transition">Copy</button>
+                        </div>
+                        <p class="mt-1 text-[11px] text-gray-500">Send this link to your friend. When they open it once, their browser will save the Cloud Sync config.</p>
+                    </div>
+                </div>
+
+                <div class="bg-gray-50 border border-gray-200 rounded-xl p-4">
+                    <div class="flex items-center justify-between gap-3 flex-wrap">
+                        <h4 class="font-bold text-gray-800">Supabase SQL (run once)</h4>
+                        <button onclick="copyCloudSQL()" class="text-xs bg-gray-200 hover:bg-gray-300 text-gray-800 px-3 py-2 rounded-lg transition">Copy SQL</button>
+                    </div>
+                    <textarea id="cloudSql" class="mt-3 w-full px-3 py-2 border border-gray-300 rounded-lg font-mono text-xs" rows="10" readonly></textarea>
+                    <p class="mt-2 text-[11px] text-gray-500">For quickest demo: this SQL disables RLS so the anon key can read/write. For a real production system, you must use Supabase Auth + RLS policies + hashed passwords.</p>
+                </div>
+
+                <div class="flex gap-3 flex-wrap">
+                    <button onclick="saveCloudSync()" class="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg transition">Save</button>
+                    <button onclick="testCloudSync()" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition">Test Connection</button>
+                    <button onclick="disableCloudSync()" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-lg transition">Disable Cloud</button>
+                    <button onclick="closeCloudSync()" class="ml-auto bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-lg transition">Close</button>
+                </div>
+
+                <div id="cloudSyncMsg" class="hidden bg-indigo-50 border border-indigo-200 text-indigo-800 px-4 py-3 rounded-lg text-sm"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Publish / Deploy Modal -->
+    <div id="publishModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto">
+        <div class="bg-white rounded-2xl card-shadow p-6 w-full max-w-3xl my-8">
+            <div class="flex items-center justify-between gap-3 mb-4 flex-wrap">
+                <h3 class="text-2xl font-bold text-gray-800 flex items-center gap-2">🚀 Publish / Deploy</h3>
+                <button onclick="closePublishModal()" class="text-gray-400 hover:text-gray-600 transition" aria-label="Close">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="space-y-6 text-gray-700">
+                <div class="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                    <p class="font-semibold text-amber-900 mb-1">Important (read this):</p>
+                    <p class="text-sm text-amber-800">This app stores users + passwords in <span class="font-mono">localStorage</span> (browser only). If you publish it, every visitor will have their own separate user database on their own device. For a real production login system, you need a backend + database.</p>
+                </div>
+
+                <div>
+                    <h4 class="text-lg font-bold text-gray-800 mb-2">Option A — GitHub Pages (free + easiest)</h4>
+                    <ol class="list-decimal ml-6 space-y-1 text-sm">
+                        <li>Create a GitHub repo (example: <span class="font-mono">login-system-pro</span>).</li>
+                        <li>Upload <span class="font-mono">index.html</span>, <span class="font-mono">styles.css</span>, <span class="font-mono">app.js</span> to the repo.</li>
+                        <li>Go to <span class="font-semibold">Settings → Pages</span>.</li>
+                        <li>Choose <span class="font-semibold">Deploy from a branch</span> → branch <span class="font-mono">main</span> → folder <span class="font-mono">/root</span>.</li>
+                        <li>Wait ~1 minute → you get a URL like <span class="font-mono">https://yourname.github.io/login-system-pro</span>.</li>
+                    </ol>
+                </div>
+
+                <div>
+                    <h4 class="text-lg font-bold text-gray-800 mb-2">Option B — Netlify (free + great for custom domains)</h4>
+                    <ol class="list-decimal ml-6 space-y-1 text-sm">
+                        <li>Go to <span class="font-semibold">netlify.com</span> → sign in.</li>
+                        <li>Drag-and-drop your project folder OR connect your GitHub repo.</li>
+                        <li>Build settings: none needed (static site).</li>
+                        <li>Netlify gives you a URL like <span class="font-mono">https://something.netlify.app</span>.</li>
+                        <li>To use <span class="font-mono">www.yourdomain.com</span>: <span class="font-semibold">Site settings → Domain management → Add domain</span>.</li>
+                    </ol>
+                </div>
+
+                <div>
+                    <h4 class="text-lg font-bold text-gray-800 mb-2">Option C — Vercel / Cloudflare Pages</h4>
+                    <p class="text-sm">Both are similar: import the GitHub repo → deploy as a static site → then add a custom domain in the dashboard.</p>
+                </div>
+
+                <div>
+                    <h4 class="text-lg font-bold text-gray-800 mb-2">Custom Domain (like www.login.com)</h4>
+                    <div class="text-sm space-y-2">
+                        <p>1) You must <span class="font-semibold">buy the domain</span> first (Namecheap, GoDaddy, Cloudflare Registrar, etc.).</p>
+                        <p>2) In your hosting dashboard (Netlify/Vercel/Cloudflare/GitHub Pages), add the domain.</p>
+                        <p>3) Update your domain DNS:</p>
+                        <ul class="list-disc ml-6 space-y-1">
+                            <li><span class="font-mono">www</span> usually becomes a <span class="font-semibold">CNAME</span> to your host (Netlify/Vercel gives you the exact value).</li>
+                            <li>The root domain <span class="font-mono">login.com</span> is usually an <span class="font-semibold">A record</span> or <span class="font-semibold">ALIAS/ANAME</span> depending on provider.</li>
+                        </ul>
+                        <p>4) Turn on HTTPS (most hosts do it automatically with Let’s Encrypt).</p>
+                    </div>
+                </div>
+
+                <div class="bg-gray-50 border border-gray-200 rounded-xl p-4">
+                    <h4 class="text-lg font-bold text-gray-800 mb-2">Want a real login system?</h4>
+                    <p class="text-sm text-gray-700">To make accounts work across devices (real “legit” auth), you need a backend (Node/Express, Firebase, Supabase, etc.), hashed passwords, and a database. If you want, tell me your preferred backend and I’ll wire it up.</p>
+                </div>
+
+                <div class="flex gap-3 flex-wrap">
+                    <button onclick="copyDeployChecklist()" class="bg-indigo-500 hover:bg-indigo-600 text-white px-4 py-2 rounded-lg transition">Copy checklist</button>
+                    <button onclick="closePublishModal()" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-lg transition">Close</button>
+                </div>
+
+                <textarea id="deployChecklist" class="w-full hidden"></textarea>
             </div>
         </div>
     </div>
