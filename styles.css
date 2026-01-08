@@ -622,6 +622,11 @@ body {
 /* Ensure Tailwind's .hidden always wins */
 .hidden { display: none !important; }
 
+/* Slightly nicer read-only inputs */
+input[readonly] {
+    cursor: text;
+}
+
 /* Offline Mode Indicator */
 body.offline-mode::before {
     content: '📴 Offline Mode - Using cached data';
@@ -831,4 +836,111 @@ body.offline-mode {
 /* Keep group grid compact inside sidebar */
 .groupStudioGrid {
     max-height: 300px;
+}
+
+/* Toast Notifications */
+#toastHost {
+    pointer-events: none;
+}
+
+.toastCard {
+    pointer-events: auto;
+    width: 320px;
+    max-width: calc(100vw - 32px);
+    border-radius: 16px;
+    background: rgba(17,24,39,0.92);
+    color: white;
+    border: 1px solid rgba(255,255,255,0.08);
+    box-shadow: 0 18px 50px -22px rgba(0,0,0,0.65);
+    overflow: hidden;
+    backdrop-filter: blur(10px);
+}
+
+.toastTop {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 12px 10px 12px;
+}
+
+.toastIcon {
+    width: 34px;
+    height: 34px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 900;
+}
+
+.toastTitle {
+    font-weight: 900;
+    font-size: 13px;
+    line-height: 1.2;
+}
+
+.toastBody {
+    margin-top: 2px;
+    font-size: 12px;
+    color: rgba(255,255,255,0.80);
+    line-height: 1.35;
+}
+
+.toastMeta {
+    font-size: 11px;
+    color: rgba(255,255,255,0.55);
+    margin-top: 6px;
+}
+
+.toastActions {
+    display: flex;
+    gap: 8px;
+    padding: 10px 12px 12px 12px;
+    border-top: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.03);
+}
+
+.toastBtn {
+    padding: 8px 10px;
+    border-radius: 12px;
+    font-weight: 900;
+    font-size: 12px;
+    background: rgba(255,255,255,0.10);
+    border: 1px solid rgba(255,255,255,0.10);
+    color: white;
+}
+
+.toastBtn:hover {
+    background: rgba(255,255,255,0.14);
+}
+
+.notifRow {
+    border: 1px solid rgba(17,24,39,0.10);
+    background: rgba(249,250,251,0.9);
+    border-radius: 14px;
+    padding: 12px;
+}
+
+.notifRow.unread {
+    border-color: rgba(99,102,241,0.28);
+    box-shadow: 0 10px 24px -20px rgba(99,102,241,0.45);
+}
+
+.notifRowTitle {
+    font-weight: 900;
+    color: #111827;
+    font-size: 13px;
+}
+
+.notifRowBody {
+    margin-top: 2px;
+    color: #6b7280;
+    font-size: 12px;
+}
+
+.notifRowMeta {
+    margin-top: 6px;
+    color: #9ca3af;
+    font-size: 11px;
 }

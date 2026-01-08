@@ -162,6 +162,11 @@
                             <span class="text-lg">🎨</span>
                             Chat Editor
                         </button>
+                        <button onclick="openNotifications()" class="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg transition flex items-center gap-2 relative">
+                            <span class="text-lg">🔔</span>
+                            Notifications
+                            <span id="notifBadge" class="hidden absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full shadow">0</span>
+                        </button>
                         <button onclick="viewMyPage()" class="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg transition flex items-center gap-2">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
@@ -1050,6 +1055,24 @@
                     <input id="manageConfirmPassword" type="password" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:border-indigo-500" placeholder="Confirm new password">
                 </div>
 
+                <div class="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                    <div class="flex items-center justify-between gap-3 flex-wrap">
+                        <p class="text-sm font-bold text-amber-900">Temporary Password</p>
+                        <span class="text-[11px] text-amber-800">Does not reveal current password</span>
+                    </div>
+                    <p class="mt-1 text-[11px] text-amber-800">Generate sets a new temporary password. Copy it and send it to the user. You can also force them to change it on next login.</p>
+                    <div class="mt-3 flex gap-2 flex-wrap">
+                        <input id="manageTempPassword" type="text" readonly class="flex-1 min-w-56 px-3 py-2 border border-amber-200 rounded-lg font-mono text-sm bg-white" placeholder="Click Generate…">
+                        <button onclick="generateTempPassword()" class="bg-amber-500 hover:bg-amber-600 text-white px-4 py-2 rounded-lg transition font-semibold">Generate</button>
+                        <button onclick="copyTempPassword()" class="bg-gray-900 hover:bg-black text-white px-4 py-2 rounded-lg transition font-semibold">Copy</button>
+                    </div>
+                </div>
+
+                <label class="flex items-center gap-2 text-sm text-gray-700">
+                    <input id="manageRequirePasswordChange" type="checkbox" class="w-4 h-4 text-indigo-600" checked>
+                    Force password change on next login
+                </label>
+
                 <label class="flex items-center gap-2 text-sm text-gray-700">
                     <input id="manageDisable2FA" type="checkbox" class="w-4 h-4 text-indigo-600">
                     Disable 2FA for this user
@@ -1063,6 +1086,39 @@
                 <div class="border-t border-gray-200 pt-4">
                     <button onclick="ownerDeleteUser()" class="w-full bg-red-50 hover:bg-red-100 text-red-700 py-3 rounded-lg font-semibold transition">🗑️ Delete this account</button>
                     <p class="mt-2 text-[11px] text-gray-500">Demo note: this is a front-end app. In production, password resets and deletes should be done via secure server-side admin tooling.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Forced Password Change Modal -->
+    <div id="forcePasswordModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-2xl card-shadow p-8 w-full max-w-md">
+            <div class="flex items-center justify-between mb-4">
+                <div>
+                    <h3 class="text-xl font-bold text-gray-800">🔐 Password Update Required</h3>
+                    <p class="text-sm text-gray-500">Your password was reset by the Owner. Please set a new one to continue.</p>
+                </div>
+                <button onclick="logoutForcedPassword()" class="text-gray-400 hover:text-gray-600 transition" aria-label="Logout">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+
+            <div id="forcePassError" class="hidden bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-4"></div>
+
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-gray-700 font-medium mb-2">New Password</label>
+                    <input type="password" id="forceNewPassword" class="w-full px-4 py-3 border border-gray-300 rounded-lg input-focus focus:outline-none focus:border-indigo-500 transition" placeholder="Enter new password (min 6 chars)">
+                </div>
+                <div>
+                    <label class="block text-gray-700 font-medium mb-2">Confirm New Password</label>
+                    <input type="password" id="forceConfirmPassword" class="w-full px-4 py-3 border border-gray-300 rounded-lg input-focus focus:outline-none focus:border-indigo-500 transition" placeholder="Confirm new password">
+                </div>
+
+                <div class="flex gap-3 pt-2">
+                    <button onclick="logoutForcedPassword()" class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 py-3 rounded-lg font-semibold transition">Logout</button>
+                    <button onclick="saveForcedPassword()" class="flex-1 bg-gradient-to-r from-indigo-500 to-purple-600 text-white py-3 rounded-lg font-semibold hover:opacity-90 transition">Save</button>
                 </div>
             </div>
         </div>
@@ -1082,6 +1138,7 @@
                 </div>
 
                 <div class="flex items-center gap-2">
+
                     <div id="chatOwnerTools" class="hidden flex gap-2 flex-wrap">
                         <button onclick="clearCurrentChat()" class="text-xs bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-lg transition">Clear</button>
                         <button onclick="toggleChatIds()" class="text-xs bg-white/20 hover:bg-white/30 text-white px-3 py-2 rounded-lg transition">IDs</button>
@@ -1242,6 +1299,51 @@
             </div>
         </div>
     </div>
+
+
+    <!-- Notifications Modal -->
+    <div id="notificationsModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-2xl card-shadow p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between gap-3 mb-4">
+                <div>
+                    <h3 class="text-2xl font-bold text-gray-800 flex items-center gap-2">🔔 Notifications</h3>
+                    <p class="text-sm text-gray-500" id="notifStatusLine">Loading…</p>
+                </div>
+                <button onclick="closeNotifications()" class="text-gray-400 hover:text-gray-600 transition" aria-label="Close">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-4">
+                <div class="flex items-center justify-between gap-3 flex-wrap">
+                    <p class="text-sm text-gray-700">
+                        Notifications work best when you <b>install</b> the site as a PWA.
+                        They’ll show for new DMs, mentions, and group messages.
+                    </p>
+                    <div class="flex gap-2 flex-wrap">
+                        <button onclick="requestNotificationPermission()" class="bg-indigo-500 hover:bg-indigo-600 text-white px-4 py-2 rounded-lg transition text-sm font-semibold">Enable</button>
+                        <button onclick="sendTestNotification()" class="bg-gray-900 hover:bg-black text-white px-4 py-2 rounded-lg transition text-sm font-semibold">Test</button>
+                    </div>
+                </div>
+                <p class="mt-2 text-[11px] text-gray-500">Note: On iOS, notifications require iOS 16.4+ and adding to Home Screen.</p>
+            </div>
+
+            <div class="flex items-center justify-between gap-3 flex-wrap mb-3">
+                <h4 class="font-bold text-gray-800">Inbox</h4>
+                <div class="flex gap-2 flex-wrap">
+                    <button onclick="markAllNotificationsRead()" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-lg transition text-sm font-semibold">Mark all read</button>
+                    <button onclick="clearNotifications()" class="bg-red-50 hover:bg-red-100 text-red-700 px-4 py-2 rounded-lg transition text-sm font-semibold">Clear</button>
+                </div>
+            </div>
+
+            <div id="notifList" class="space-y-2"></div>
+        </div>
+    </div>
+
+    <!-- Toast Host (top-right) -->
+    <div id="toastHost" class="fixed top-4 right-4 z-[70] space-y-2"></div>
 
     <!-- Chat Editor Modal (Owner Only) -->
     <div id="chatEditorModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto">

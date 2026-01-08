@@ -160,6 +160,7 @@ async function cloudLoadUsers() {
         role: row.role,
         twoFactorEnabled: !!row.twofactorenabled,
         twoFactorSecret: row.twofactorsecret,
+        mustChangePassword: !!row.mustchangepassword,
         pageConfig: typeof row.pageconfig === 'string' ? JSON.parse(row.pageconfig) : (row.pageconfig || null)
     }));
 }
@@ -175,6 +176,7 @@ async function cloudUpsertUser(user) {
         role: user.role,
         twofactorenabled: !!user.twoFactorEnabled,
         twofactorsecret: user.twoFactorSecret || null,
+        mustchangepassword: !!user.mustChangePassword,
         pageconfig: user.pageConfig ? JSON.stringify(user.pageConfig) : null
     };
 
@@ -359,13 +361,18 @@ async function initApp() {
             currentUser = freshUser;
             saveCurrentUser();
             showDashboard();
+
+            // Start background call polling so incoming rings can appear even if Chat is closed
+            startGlobalCallPolling();
         } else {
             currentUser = null;
             saveCurrentUser();
             showLogin();
+            stopGlobalCallPolling();
         }
     } else {
         showLogin();
+        stopGlobalCallPolling();
     }
 }
 
@@ -479,15 +486,15 @@ function login() {
     const username = document.getElementById('loginUsername').value.trim().toLowerCase();
     const password = document.getElementById('loginPassword').value;
     const errorDiv = document.getElementById('loginError');
-    
+
     if (!username || !password) {
         errorDiv.textContent = 'Please fill in all fields';
         errorDiv.classList.remove('hidden');
         return;
     }
-    
+
     const user = users.find(u => u.username.toLowerCase() === username && u.password === password);
-    
+
     if (user) {
         if (user.twoFactorEnabled) {
             pendingLoginUser = user;
@@ -498,7 +505,13 @@ function login() {
         } else {
             currentUser = user;
             saveCurrentUser();
-            showDashboard();
+
+            // If owner forced a reset, require new password immediately
+            if (currentUser.mustChangePassword) {
+                openForcePasswordModal();
+            } else {
+                showDashboard();
+            }
         }
     } else {
         errorDiv.textContent = 'Invalid username or password';
@@ -509,26 +522,35 @@ function login() {
 function verify2FA() {
     const code = document.getElementById('twoFactorCode').value.trim();
     const errorDiv = document.getElementById('twoFactorError');
-    
+
     if (!code || code.length !== 6) {
         errorDiv.textContent = 'Please enter a 6-digit code';
         errorDiv.classList.remove('hidden');
         return;
     }
-    
+
     const totp = new OTPAuth.TOTP({
         secret: OTPAuth.Secret.fromBase32(pendingLoginUser.twoFactorSecret),
         digits: 6,
         period: 30
     });
-    
+
     const isValid = totp.validate({ token: code, window: 1 }) !== null;
-    
+
     if (isValid) {
         currentUser = pendingLoginUser;
         saveCurrentUser();
         pendingLoginUser = null;
-        showDashboard();
+
+        // Start background call polling
+        startGlobalCallPolling();
+
+        // If owner forced a reset, require new password immediately
+        if (currentUser.mustChangePassword) {
+            openForcePasswordModal();
+        } else {
+            showDashboard();
+        }
     } else {
         errorDiv.textContent = 'Invalid code. Please try again.';
         errorDiv.classList.remove('hidden');
@@ -537,6 +559,7 @@ function verify2FA() {
 
 function cancel2FA() {
     pendingLoginUser = null;
+    stopGlobalCallPolling();
     showLogin();
 }
 
@@ -626,9 +649,88 @@ function register() {
 function logout() {
     currentUser = null;
     saveCurrentUser();
+    stopGlobalCallPolling();
     document.getElementById('loginUsername').value = '';
     document.getElementById('loginPassword').value = '';
     showLogin();
+}
+
+function openForcePasswordModal() {
+    hideAll();
+    const modal = document.getElementById('forcePasswordModal');
+    if (modal) modal.classList.remove('hidden');
+
+    const err = document.getElementById('forcePassError');
+    if (err) err.classList.add('hidden');
+
+    const n1 = document.getElementById('forceNewPassword');
+    const n2 = document.getElementById('forceConfirmPassword');
+    if (n1) n1.value = '';
+    if (n2) n2.value = '';
+}
+
+function logoutForcedPassword() {
+    // user can choose to logout instead
+    currentUser = null;
+    saveCurrentUser();
+    stopGlobalCallPolling();
+    const modal = document.getElementById('forcePasswordModal');
+    if (modal) modal.classList.add('hidden');
+    showLogin();
+}
+
+async function saveForcedPassword() {
+    if (!currentUser) return;
+
+    const newPass = document.getElementById('forceNewPassword')?.value || '';
+    const confirm = document.getElementById('forceConfirmPassword')?.value || '';
+    const err = document.getElementById('forcePassError');
+
+    if (!newPass || newPass.length < 6) {
+        if (err) {
+            err.textContent = 'Password must be at least 6 characters.';
+            err.classList.remove('hidden');
+        }
+        return;
+    }
+
+    if (newPass !== confirm) {
+        if (err) {
+            err.textContent = 'Passwords do not match.';
+            err.classList.remove('hidden');
+        }
+        return;
+    }
+
+    const idx = users.findIndex(u => u.username === currentUser.username);
+    if (idx === -1) {
+        logoutForcedPassword();
+        return;
+    }
+
+    users[idx].password = newPass;
+    users[idx].mustChangePassword = false;
+    saveUsers();
+
+    if (isCloudEnabled()) {
+        try {
+            await cloudUpsertUser(users[idx]);
+        } catch (e) {
+            if (err) {
+                err.textContent = 'Saved locally but cloud sync failed: ' + (e?.message || e);
+                err.classList.remove('hidden');
+            }
+            return;
+        }
+    }
+
+    currentUser = users[idx];
+    saveCurrentUser();
+
+    const modal = document.getElementById('forcePasswordModal');
+    if (modal) modal.classList.add('hidden');
+
+    showDashboard();
 }
 
 // ==========================================
@@ -920,6 +1022,7 @@ function renderUsersList() {
 // ==========================================
 
 let managingUsername = null;
+let managingTempPassword = '';
 
 function setManageUserMsg(text, kind = 'info') {
     const el = document.getElementById('manageUserMsg');
@@ -957,6 +1060,7 @@ function openManageUser(username) {
     }
 
     managingUsername = username;
+    managingTempPassword = '';
 
     document.getElementById('manageUserDisplay').textContent = `${u.name} (@${u.username})`;
     document.getElementById('manageUserUsername').textContent = u.username;
@@ -964,14 +1068,47 @@ function openManageUser(username) {
     document.getElementById('manageConfirmPassword').value = '';
     document.getElementById('manageDisable2FA').checked = false;
 
+    const tempEl = document.getElementById('manageTempPassword');
+    if (tempEl) tempEl.value = '';
+
+    const requireEl = document.getElementById('manageRequirePasswordChange');
+    if (requireEl) requireEl.checked = true;
+
     setManageUserMsg('', 'info');
     document.getElementById('manageUserModal').classList.remove('hidden');
 }
 
 function closeManageUser() {
     managingUsername = null;
+    managingTempPassword = '';
     const modal = document.getElementById('manageUserModal');
     if (modal) modal.classList.add('hidden');
+}
+
+function generateTempPassword() {
+    // Owner admin tooling: generates a new password (does not reveal current)
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
+    let out = '';
+    for (let i = 0; i < 12; i++) out += alphabet[Math.floor(Math.random() * alphabet.length)];
+    managingTempPassword = out;
+    const el = document.getElementById('manageTempPassword');
+    if (el) el.value = out;
+
+    setManageUserMsg('Temporary password generated. Click Save to apply it.', 'info');
+}
+
+async function copyTempPassword() {
+    const val = (document.getElementById('manageTempPassword')?.value || '').trim();
+    if (!val) {
+        setManageUserMsg('Generate a temporary password first.', 'error');
+        return;
+    }
+    try {
+        await navigator.clipboard.writeText(val);
+        setManageUserMsg('Copied temporary password to clipboard.', 'success');
+    } catch {
+        setManageUserMsg('Could not copy automatically. Select and copy manually.', 'error');
+    }
 }
 
 async function saveManagedUser() {
@@ -994,19 +1131,29 @@ async function saveManagedUser() {
     const newPass = document.getElementById('manageNewPassword').value;
     const confirmPass = document.getElementById('manageConfirmPassword').value;
     const disable2FAFlag = document.getElementById('manageDisable2FA').checked;
+    const requireChange = !!document.getElementById('manageRequirePasswordChange')?.checked;
 
-    if ((newPass || confirmPass) && newPass.length < 6) {
-        setManageUserMsg('New password must be at least 6 characters.', 'error');
+    // Priority: if temp password generated, use it
+    const tempEl = document.getElementById('manageTempPassword');
+    const tempVal = (tempEl?.value || '').trim();
+
+    const passToSet = tempVal || newPass;
+
+    if ((passToSet || confirmPass) && passToSet.length < 6) {
+        setManageUserMsg('Password must be at least 6 characters.', 'error');
         return;
     }
 
-    if (newPass !== confirmPass) {
-        setManageUserMsg('Passwords do not match.', 'error');
-        return;
+    if (newPass || confirmPass) {
+        if (newPass !== confirmPass) {
+            setManageUserMsg('Passwords do not match.', 'error');
+            return;
+        }
     }
 
-    if (newPass) {
-        target.password = newPass;
+    if (passToSet) {
+        target.password = passToSet;
+        target.mustChangePassword = requireChange;
     }
 
     if (disable2FAFlag) {
@@ -1840,11 +1987,12 @@ document.addEventListener('keydown', function(e) {
         closeChat();
         closeManageUser();
         closeChatEditor();
+        closeNotifications();
     }
 });
 
 document.addEventListener('DOMContentLoaded', function() {
-    ['editProfileModal', 'deleteModal', 'twoFactorModal', 'pageEditorModal', 'transferOwnerModal', 'siteEditorModal', 'aiAssistantModal', 'publishModal', 'cloudSyncModal', 'chatModal', 'manageUserModal', 'chatEditorModal'].forEach(id => {
+    ['editProfileModal', 'deleteModal', 'twoFactorModal', 'pageEditorModal', 'transferOwnerModal', 'siteEditorModal', 'aiAssistantModal', 'publishModal', 'cloudSyncModal', 'chatModal', 'manageUserModal', 'chatEditorModal', 'notificationsModal'].forEach(id => {
         const el = document.getElementById(id);
         if (el) {
             el.addEventListener('click', function(e) {
@@ -1852,6 +2000,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Use dedicated closers when available
                     if (id === 'manageUserModal') closeManageUser();
                     else if (id === 'chatModal') closeChat();
+                    else if (id === 'dmCallModal') closeDmCallModal();
                     else this.classList.add('hidden');
                 }
             });
@@ -2235,6 +2384,7 @@ function getCloudSQL() {
         '  role text default \'user\',',
         '  twofactorenabled boolean default false,',
         '  twofactorsecret text,',
+        '  mustchangepassword boolean default false,',
         '  pageconfig text,',
         '  created_at timestamp with time zone default now()',
         ');',
@@ -2499,6 +2649,288 @@ window.addEventListener('online', () => {
     flushChatOutbox().catch(() => {});
 });
 
+// ==========================================
+// NOTIFICATIONS (IN-APP + OPTIONAL SYSTEM NOTIFS)
+// ==========================================
+
+// This app is front-end only, so we implement a local "inbox" + toast system.
+// If the user grants Notification permission, we also trigger system notifications.
+// NOTE: True push notifications require a backend (or a service like OneSignal).
+
+const NOTIF_STORE_KEY = 'notifInboxV1';
+const NOTIF_LAST_SEEN_KEY = 'notifLastSeenByChannelV1';
+
+function loadNotifStore() {
+    try {
+        const raw = localStorage.getItem(NOTIF_STORE_KEY);
+        const arr = raw ? JSON.parse(raw) : [];
+        return Array.isArray(arr) ? arr : [];
+    } catch {
+        return [];
+    }
+}
+
+function saveNotifStore(items) {
+    try {
+        localStorage.setItem(NOTIF_STORE_KEY, JSON.stringify((items || []).slice(-300)));
+    } catch {
+        // ignore
+    }
+}
+
+function getLastSeenMap() {
+    try {
+        const raw = localStorage.getItem(NOTIF_LAST_SEEN_KEY);
+        const obj = raw ? JSON.parse(raw) : {};
+        return obj && typeof obj === 'object' ? obj : {};
+    } catch {
+        return {};
+    }
+}
+
+function setLastSeen(channelKey, value) {
+    const map = getLastSeenMap();
+    map[channelKey] = value;
+    try {
+        localStorage.setItem(NOTIF_LAST_SEEN_KEY, JSON.stringify(map));
+    } catch {
+        // ignore
+    }
+}
+
+function getNotificationPermission() {
+    return (typeof Notification !== 'undefined') ? Notification.permission : 'unsupported';
+}
+
+async function requestNotificationPermission() {
+    if (typeof Notification === 'undefined') {
+        showToast({ title: 'Notifications not supported', body: 'This browser does not support notifications.' });
+        updateNotifStatusLine();
+        return;
+    }
+
+    try {
+        const res = await Notification.requestPermission();
+        showToast({ title: 'Notification permission', body: `Permission: ${res}` });
+    } catch {
+        showToast({ title: 'Notification permission', body: 'Could not request permission.' });
+    }
+
+    updateNotifStatusLine();
+}
+
+function fireSystemNotification(title, body) {
+    if (typeof Notification === 'undefined') return;
+    if (Notification.permission !== 'granted') return;
+
+    try {
+        // On many browsers, this only works reliably when page is active.
+        new Notification(title, {
+            body,
+            icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="20" fill="%23667eea"/><text x="50" y="68" font-size="50" text-anchor="middle" fill="white">🔔</text></svg>'
+        });
+    } catch {
+        // ignore
+    }
+}
+
+function nowIso() {
+    return new Date().toISOString();
+}
+
+function addNotification(n) {
+    const inbox = loadNotifStore();
+    const item = {
+        id: n.id || (Date.now() + '-' + Math.random().toString(16).slice(2)),
+        type: n.type || 'info', // dm|group|mention|system
+        title: n.title || 'Notification',
+        body: n.body || '',
+        channelKey: n.channelKey || 'global',
+        created_at: n.created_at || nowIso(),
+        unread: (typeof n.unread === 'boolean') ? n.unread : true,
+        meta: n.meta || {}
+    };
+
+    inbox.push(item);
+    saveNotifStore(inbox);
+
+    updateNotifBadge();
+    renderNotifList();
+
+    // In-app toast
+    showToast({
+        title: item.title,
+        body: item.body,
+        meta: item.meta,
+        onOpen: () => {
+            // If it's a chat notif, jump to chat
+            if (item.meta?.goChat) {
+                try {
+                    openChat();
+                    if (item.meta.mode) setChatMode(item.meta.mode);
+                    if (item.meta.dmWith) openDMWith(item.meta.dmWith);
+                    if (item.meta.groupName) openGroupFromList(item.meta.groupName);
+                } catch {}
+            }
+        }
+    });
+
+    // System notification (best effort)
+    fireSystemNotification(item.title, item.body);
+}
+
+function markAllNotificationsRead() {
+    const inbox = loadNotifStore();
+    inbox.forEach(n => n.unread = false);
+    saveNotifStore(inbox);
+    updateNotifBadge();
+    renderNotifList();
+}
+
+function clearNotifications() {
+    if (!confirm('Clear all notifications?')) return;
+    saveNotifStore([]);
+    updateNotifBadge();
+    renderNotifList();
+}
+
+function updateNotifBadge() {
+    const badge = document.getElementById('notifBadge');
+    if (!badge) return;
+    const inbox = loadNotifStore();
+    const count = inbox.filter(n => n.unread).length;
+    badge.textContent = String(count);
+    badge.classList.toggle('hidden', count <= 0);
+}
+
+function updateNotifStatusLine() {
+    const el = document.getElementById('notifStatusLine');
+    if (!el) return;
+
+    const perm = getNotificationPermission();
+    const online = isNetworkOnline() ? 'Online' : 'Offline';
+
+    if (perm === 'unsupported') {
+        el.textContent = `${online} • System notifications unsupported • Inbox enabled`;
+        return;
+    }
+
+    el.textContent = `${online} • System notifications: ${perm} • Inbox enabled`;
+}
+
+function openNotifications() {
+    const modal = document.getElementById('notificationsModal');
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    updateNotifStatusLine();
+    renderNotifList();
+}
+
+function closeNotifications() {
+    const modal = document.getElementById('notificationsModal');
+    if (!modal) return;
+    modal.classList.add('hidden');
+}
+
+function renderNotifList() {
+    const el = document.getElementById('notifList');
+    if (!el) return;
+
+    const inbox = loadNotifStore().slice().reverse();
+
+    if (inbox.length === 0) {
+        el.innerHTML = `<div class="text-center text-gray-400 text-sm py-8">No notifications yet.</div>`;
+        return;
+    }
+
+    el.innerHTML = inbox.map(n => {
+        const time = new Date(n.created_at).toLocaleString();
+        const cls = n.unread ? 'notifRow unread' : 'notifRow';
+        return `
+            <div class="${cls}">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                        <div class="notifRowTitle">${escapeHtml(n.title)}</div>
+                        <div class="notifRowBody">${escapeHtml(n.body)}</div>
+                        <div class="notifRowMeta">${escapeHtml(time)} • ${escapeHtml(n.type)}</div>
+                    </div>
+                    <div class="flex gap-2">
+                        ${n.meta?.goChat ? `<button class="text-xs bg-indigo-500 hover:bg-indigo-600 text-white px-3 py-2 rounded-lg font-semibold" onclick="(function(){ try{ openChat(); ${n.meta.mode ? `setChatMode('${n.meta.mode}');` : ''} ${n.meta.dmWith ? `openDMWith('${n.meta.dmWith}');` : ''} ${n.meta.groupName ? `openGroupFromList('${n.meta.groupName}');` : ''} }catch(e){} })()">Open</button>` : ''}
+                        <button class="text-xs bg-gray-200 hover:bg-gray-300 text-gray-800 px-3 py-2 rounded-lg font-semibold" onclick="markNotifRead('${n.id}')">Read</button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function markNotifRead(id) {
+    const inbox = loadNotifStore();
+    const idx = inbox.findIndex(n => n.id === id);
+    if (idx !== -1) inbox[idx].unread = false;
+    saveNotifStore(inbox);
+    updateNotifBadge();
+    renderNotifList();
+}
+
+function showToast({ title, body, meta, onOpen }) {
+    const host = document.getElementById('toastHost');
+    if (!host) return;
+
+    const id = 't_' + Date.now() + '_' + Math.random().toString(16).slice(2);
+    const wrap = document.createElement('div');
+    wrap.className = 'toastCard';
+    wrap.id = id;
+
+    const when = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    wrap.innerHTML = `
+        <div class="toastTop">
+            <div class="toastIcon">🔔</div>
+            <div class="min-w-0 flex-1">
+                <div class="toastTitle">${escapeHtml(title || 'Notification')}</div>
+                <div class="toastBody">${escapeHtml(body || '')}</div>
+                <div class="toastMeta">${escapeHtml(when)}</div>
+            </div>
+        </div>
+        <div class="toastActions">
+            ${onOpen ? `<button class="toastBtn" data-open="1">Open</button>` : ''}
+            <button class="toastBtn" data-close="1">Dismiss</button>
+        </div>
+    `;
+
+    host.appendChild(wrap);
+
+    const openBtn = wrap.querySelector('[data-open="1"]');
+    const closeBtn = wrap.querySelector('[data-close="1"]');
+
+    if (openBtn) {
+        openBtn.addEventListener('click', () => {
+            try { onOpen?.(); } catch {}
+            wrap.remove();
+        });
+    }
+
+    if (closeBtn) {
+        closeBtn.addEventListener('click', () => wrap.remove());
+    }
+
+    // Auto dismiss
+    setTimeout(() => {
+        if (document.getElementById(id)) wrap.remove();
+    }, 6500);
+}
+
+function sendTestNotification() {
+    addNotification({
+        type: 'system',
+        title: 'Test notification',
+        body: 'Notifications are working in this browser (inbox + toast).',
+        unread: true,
+        meta: { goChat: false }
+    });
+}
+
 let chatMode = 'public'; // public | dm | group
 let currentChannel = { type: 'public', id: 'public', title: 'Public Chat' };
 let currentDmWith = null; // username
@@ -2618,6 +3050,7 @@ function updateChatHeader() {
         tools.classList.toggle('hidden', !isOwner());
     }
 
+
     // Tab button styles
     const tabPublic = document.getElementById('chatTabPublic');
     const tabDm = document.getElementById('chatTabDm');
@@ -2725,6 +3158,11 @@ async function cloudJoinGroup(groupName, username) {
         await supabaseChatFetch('chat_group_members', { method: 'POST', body: JSON.stringify(payload) });
         return true;
     } catch (e) {
+        // If user is already a member, Supabase returns 409. Treat as success.
+        const msg = (e?.message || '').toLowerCase();
+        if (msg.includes('409') || msg.includes('duplicate') || msg.includes('already')) {
+            return true;
+        }
         // Legacy fallback: store membership locally only (still allows group chat if using legacy tagged messages)
         localJoinGroup(groupName, username);
         return true;
@@ -4008,6 +4446,12 @@ openChat = function() {
         flushChatOutbox().catch(() => {});
         loadAndRenderMessages();
     }, 2500);
+
+    // Start polling for incoming call events (lightweight)
+    if (dmCallPollingInterval) clearInterval(dmCallPollingInterval);
+    dmCallPollingInterval = setInterval(() => {
+        pollIncomingDmCalls().catch(() => {});
+    }, 1200);
 };
 
 function closeChat() { /* placeholder overwritten above */ }
@@ -4016,6 +4460,11 @@ closeChat = function() {
     if (chatPollingInterval) {
         clearInterval(chatPollingInterval);
         chatPollingInterval = null;
+    }
+
+    if (dmCallPollingInterval) {
+        clearInterval(dmCallPollingInterval);
+        dmCallPollingInterval = null;
     }
 };
 
