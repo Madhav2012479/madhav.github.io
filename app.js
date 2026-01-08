@@ -100,6 +100,20 @@ function supabaseRestUrl(path) {
     return cloudConfig.supabaseUrl.replace(/\/$/, '') + '/rest/v1/' + path.replace(/^\//, '');
 }
 
+function isNetworkOnline() {
+    return navigator.onLine !== false;
+}
+
+async function fetchWithTimeout(url, opts = {}, timeoutMs = 8000) {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(url, { ...opts, signal: controller.signal });
+    } finally {
+        clearTimeout(id);
+    }
+}
+
 async function supabaseFetch(path, opts = {}) {
     const headers = {
         apikey: cloudConfig.supabaseAnonKey,
@@ -109,10 +123,18 @@ async function supabaseFetch(path, opts = {}) {
         ...(opts.headers || {})
     };
 
-    const res = await fetch(supabaseRestUrl(path), {
-        ...opts,
-        headers
-    });
+    let res;
+    try {
+        res = await fetchWithTimeout(supabaseRestUrl(path), {
+            ...opts,
+            headers
+        }, 8000);
+    } catch (e) {
+        if (e?.name === 'AbortError') {
+            throw new Error('Supabase request timed out');
+        }
+        throw e;
+    }
 
     if (!res.ok) {
         const txt = await res.text();
@@ -2426,6 +2448,57 @@ let chatPollingInterval = null;
 let chatCloudOk = null; // null = unknown, true/false after first attempt
 let chatCloudLastError = '';
 
+// Offline-first outbox (best-effort sync to cloud when back online)
+const CHAT_OUTBOX_KEY = 'chatOutboxV1';
+
+function loadChatOutbox() {
+    try {
+        const raw = localStorage.getItem(CHAT_OUTBOX_KEY);
+        const arr = raw ? JSON.parse(raw) : [];
+        return Array.isArray(arr) ? arr : [];
+    } catch {
+        return [];
+    }
+}
+
+function saveChatOutbox(items) {
+    try {
+        localStorage.setItem(CHAT_OUTBOX_KEY, JSON.stringify(items.slice(-200)));
+    } catch {
+        // ignore
+    }
+}
+
+function enqueueOutbox(item) {
+    const q = loadChatOutbox();
+    q.push({ ...item, queuedAt: Date.now() });
+    saveChatOutbox(q);
+}
+
+async function flushChatOutbox() {
+    if (!isCloudEnabled() || !isNetworkOnline()) return;
+
+    const q = loadChatOutbox();
+    if (!q.length) return;
+
+    const remaining = [];
+
+    for (const item of q) {
+        try {
+            await cloudSendChannelMessage(item.channelType, item.channelId, item.sender, item.body);
+        } catch (e) {
+            // keep it for later
+            remaining.push(item);
+        }
+    }
+
+    saveChatOutbox(remaining);
+}
+
+window.addEventListener('online', () => {
+    flushChatOutbox().catch(() => {});
+});
+
 let chatMode = 'public'; // public | dm | group
 let currentChannel = { type: 'public', id: 'public', title: 'Public Chat' };
 let currentDmWith = null; // username
@@ -2484,12 +2557,41 @@ function loadLocalChatStore() {
     }
 }
 
-function saveLocalChatStore(store) {
+function safeSaveLocalChatStore(store) {
+    // Try to save; if quota is exceeded, trim message history and retry.
     try {
         localStorage.setItem('chatStoreV2', JSON.stringify(store));
+        return true;
     } catch (e) {
-        console.warn('Could not save chat store:', e);
+        // Quota errors vary by browser
+        const msg = (e && (e.name || e.message) ? String(e.name || e.message) : '').toLowerCase();
+        const quota = msg.includes('quota') || msg.includes('exceeded') || msg.includes('storage');
+
+        if (!quota) {
+            console.warn('Could not save chat store:', e);
+            return false;
+        }
+
+        // Trim aggressively and retry
+        try {
+            store.messages = Array.isArray(store.messages) ? store.messages.slice(-200) : [];
+            store.groups = Array.isArray(store.groups) ? store.groups.slice(-100) : [];
+            store.members = Array.isArray(store.members) ? store.members.slice(-300) : [];
+            localStorage.setItem('chatStoreV2', JSON.stringify(store));
+            return true;
+        } catch (e2) {
+            console.warn('Could not save chat store after trimming:', e2);
+            // As a last resort, clear chat store completely
+            try {
+                localStorage.removeItem('chatStoreV2');
+            } catch {}
+            return false;
+        }
     }
+}
+
+function saveLocalChatStore(store) {
+    safeSaveLocalChatStore(store);
 }
 
 function escapeHtml(text) {
@@ -2545,16 +2647,27 @@ function updateOnlineCount() {
         return;
     }
 
-    if (chatCloudOk === false) {
-        el.textContent = `Cloud enabled • Chat offline (local fallback)`;
+    if (!isNetworkOnline()) {
+        el.textContent = `Offline • Local queue • ${modeLabel}`;
         return;
     }
 
-    el.textContent = `${users.length} users • ${modeLabel}`;
+    if (chatCloudOk === false) {
+        el.textContent = `Cloud enabled • Local fallback • ${modeLabel}`;
+        return;
+    }
+
+    el.textContent = `Cloud • ${users.length} users • ${modeLabel}`;
 }
 
 async function supabaseChatFetch(path, opts = {}) {
     // wrapper so errors are recorded for the chat warning bar
+    if (!isNetworkOnline()) {
+        chatCloudOk = false;
+        chatCloudLastError = 'Offline';
+        throw new Error('Offline');
+    }
+
     try {
         const res = await supabaseFetch(path, opts);
         chatCloudOk = true;
@@ -2777,6 +2890,7 @@ function localLoadChannelMessages(channelType, channelId) {
 function localSendChannelMessage(channelType, channelId, sender, body) {
     const store = loadLocalChatStore();
     store.messages = store.messages || [];
+
     const msg = {
         id: Date.now(),
         channel_type: channelType,
@@ -2785,9 +2899,19 @@ function localSendChannelMessage(channelType, channelId, sender, body) {
         body,
         created_at: new Date().toISOString()
     };
+
     store.messages.push(msg);
-    // Keep only the last 500 messages to avoid localStorage limits
-    store.messages = store.messages.slice(-500);
+
+    // Keep local storage healthy:
+    // - Limit total messages
+    // - Prefer keeping recent messages per channel
+    const maxTotal = 350;
+
+    if (store.messages.length > maxTotal) {
+        // Keep newest messages overall
+        store.messages = store.messages.slice(-maxTotal);
+    }
+
     saveLocalChatStore(store);
     return msg;
 }
@@ -3494,19 +3618,23 @@ async function loadAndRenderMessages() {
         }
     }
 
-    // Prefer cloud if enabled
-    if (isCloudEnabled()) {
+    // Prefer cloud if enabled AND we appear online; otherwise go local immediately.
+    if (isCloudEnabled() && isNetworkOnline()) {
         try {
             const cloudMsgs = await cloudLoadChannelMessages(channelType, channelId);
             chatMessages = cloudMsgs;
             setChatCloudWarn('');
         } catch (e) {
             chatMessages = localLoadChannelMessages(channelType, channelId);
-            setChatCloudWarn('Cloud chat not available (local fallback). Run Cloud Sync SQL. ' + (chatCloudLastError ? `Error: ${chatCloudLastError}` : ''));
+            setChatCloudWarn('Cloud chat not available (local fallback). ' + (chatCloudLastError ? `Error: ${chatCloudLastError}` : ''));
         }
     } else {
         chatMessages = localLoadChannelMessages(channelType, channelId);
-        setChatCloudWarn('');
+        if (isCloudEnabled() && !isNetworkOnline()) {
+            setChatCloudWarn('You appear offline. Using local-only messages on this device.');
+        } else {
+            setChatCloudWarn('');
+        }
     }
 
     renderMessages();
@@ -3817,17 +3945,24 @@ async function sendChatBody(body, isSystemLike = false) {
 
     const sender = currentUser.username;
 
-    if (isCloudEnabled()) {
+    if (isCloudEnabled() && isNetworkOnline()) {
         try {
             const saved = await cloudSendChannelMessage(channelType, channelId, sender, body);
             if (!saved) throw new Error('Cloud send failed');
             setChatCloudWarn('');
         } catch (e) {
             localSendChannelMessage(channelType, channelId, sender, body);
-            setChatCloudWarn('Could not send via cloud (local fallback). Run Cloud Sync SQL. ' + (chatCloudLastError ? `Error: ${chatCloudLastError}` : ''));
+            enqueueOutbox({ channelType, channelId, sender, body });
+            setChatCloudWarn('Could not send via cloud (saved locally). ' + (chatCloudLastError ? `Error: ${chatCloudLastError}` : ''));
         }
     } else {
         localSendChannelMessage(channelType, channelId, sender, body);
+        if (isCloudEnabled()) {
+            enqueueOutbox({ channelType, channelId, sender, body });
+        }
+        if (isCloudEnabled() && !isNetworkOnline()) {
+            setChatCloudWarn('You appear offline. Message saved locally on this device.');
+        }
     }
 
     await loadAndRenderMessages();
@@ -3856,16 +3991,23 @@ function openChat() { /* placeholder overwritten above */ }
 openChat = function() {
     document.getElementById('chatModal').classList.remove('hidden');
     setChatCloudWarn('');
-    
+
     // Trim storage to prevent issues
     trimLocalChatStorage();
-    
+
+    // Try to sync any offline messages
+    flushChatOutbox().catch(() => {});
+
     setChatTabStateOnOpen();
 
     loadAndRenderMessages();
 
     if (chatPollingInterval) clearInterval(chatPollingInterval);
-    chatPollingInterval = setInterval(loadAndRenderMessages, 2500);
+    chatPollingInterval = setInterval(() => {
+        // Keep trying to flush while open
+        flushChatOutbox().catch(() => {});
+        loadAndRenderMessages();
+    }, 2500);
 };
 
 function closeChat() { /* placeholder overwritten above */ }
