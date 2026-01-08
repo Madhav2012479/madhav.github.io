@@ -3,6 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#667eea">
+    <meta name="description" content="A complete login system with chat, user management, and customizable pages">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="LoginPro">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%23667eea' width='100' height='100' rx='20'/><text x='50' y='68' font-size='50' text-anchor='middle' fill='white'>🔐</text></svg>">
     <title>Login System Pro</title>
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1379,5 +1386,62 @@
 
     <!-- Custom JavaScript -->
     <script src="app.js"></script>
+    
+    <!-- Register Service Worker for Offline Support -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then((registration) => {
+                        console.log('✅ Service Worker registered:', registration.scope);
+                        
+                        // Check for updates periodically
+                        setInterval(() => {
+                            registration.update();
+                        }, 60 * 60 * 1000); // Check every hour
+                    })
+                    .catch((error) => {
+                        console.log('❌ Service Worker registration failed:', error);
+                    });
+            });
+            
+            // Show install prompt for PWA
+            let deferredPrompt;
+            window.addEventListener('beforeinstallprompt', (e) => {
+                e.preventDefault();
+                deferredPrompt = e;
+                
+                // Show custom install button (you could add a button in the UI)
+                console.log('📱 App can be installed! Use browser menu or call installApp()');
+                
+                // Make install function available globally
+                window.installApp = async () => {
+                    if (deferredPrompt) {
+                        deferredPrompt.prompt();
+                        const { outcome } = await deferredPrompt.userChoice;
+                        console.log(`User ${outcome === 'accepted' ? 'accepted' : 'dismissed'} the install prompt`);
+                        deferredPrompt = null;
+                    }
+                };
+            });
+            
+            // Notify when app is installed
+            window.addEventListener('appinstalled', () => {
+                console.log('🎉 App installed successfully!');
+                deferredPrompt = null;
+            });
+            
+            // Handle offline/online status
+            window.addEventListener('online', () => {
+                console.log('🌐 Back online!');
+                document.body.classList.remove('offline-mode');
+            });
+            
+            window.addEventListener('offline', () => {
+                console.log('📴 Gone offline - using cached data');
+                document.body.classList.add('offline-mode');
+            });
+        }
+    </script>
 </body>
 </html>

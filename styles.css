@@ -622,6 +622,58 @@ body {
 /* Ensure Tailwind's .hidden always wins */
 .hidden { display: none !important; }
 
+/* Offline Mode Indicator */
+body.offline-mode::before {
+    content: '📴 Offline Mode - Using cached data';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+    color: white;
+    text-align: center;
+    padding: 8px 16px;
+    font-size: 14px;
+    font-weight: 600;
+    z-index: 9999;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+}
+
+body.offline-mode {
+    padding-top: 40px;
+}
+
+/* PWA Install Banner (optional - shown when installable) */
+.pwa-install-banner {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    right: 20px;
+    max-width: 400px;
+    margin: 0 auto;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white;
+    padding: 16px 20px;
+    border-radius: 16px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    z-index: 9999;
+    animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
 /* DM Studio */
 .dmStudio {
     flex-direction: column;
