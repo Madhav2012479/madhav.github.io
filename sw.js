@@ -1,6 +1,6 @@
 // Service Worker for Login System Pro
 // Bump this version whenever you deploy UI changes, so clients get fresh HTML/JS.
-const CACHE_NAME = 'login-system-pro-v2';
+const CACHE_NAME = 'login-system-pro-v3';
 const OFFLINE_URL = './index.html';
 
 // Files to cache for offline use

@@ -1,3 +1,31 @@
+// ==========================================
+// DARK MODE
+// ==========================================
+
+function loadDarkMode() {
+    const isDark = localStorage.getItem('darkMode') === 'true';
+    if (isDark) {
+        document.body.classList.add('dark-mode');
+        updateDarkModeIcon(true);
+    }
+}
+
+function toggleDarkMode() {
+    const isDark = document.body.classList.toggle('dark-mode');
+    localStorage.setItem('darkMode', isDark);
+    updateDarkModeIcon(isDark);
+}
+
+function updateDarkModeIcon(isDark) {
+    const icon = document.getElementById('darkModeIcon');
+    if (icon) {
+        icon.textContent = isDark ? '☀️' : '🌙';
+    }
+}
+
+// Load dark mode on page load
+document.addEventListener('DOMContentLoaded', loadDarkMode);
+
 // Sound presets
 const soundPresets = [
     { name: 'Ding', url: 'https://www.soundjay.com/buttons/beep-01a.mp3' },

@@ -944,3 +944,87 @@ body.offline-mode {
     color: #9ca3af;
     font-size: 11px;
 }
+
+/* ==========================================
+   DARK MODE
+   ========================================== */
+
+body.dark-mode {
+    background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 100%) !important;
+}
+
+body.dark-mode .bg-white,
+body.dark-mode .bg-gray-50,
+body.dark-mode .bg-gray-100 {
+    background: #1e1e2f !important;
+    color: #e5e5e5 !important;
+}
+
+body.dark-mode .card-shadow {
+    background: #1e1e2f !important;
+    border: 1px solid #2d2d44 !important;
+}
+
+body.dark-mode .text-gray-800,
+body.dark-mode .text-gray-700,
+body.dark-mode .text-gray-600 {
+    color: #e5e5e5 !important;
+}
+
+body.dark-mode .text-gray-500,
+body.dark-mode .text-gray-400 {
+    color: #9ca3af !important;
+}
+
+body.dark-mode input,
+body.dark-mode textarea,
+body.dark-mode select {
+    background: #2d2d44 !important;
+    border-color: #3d3d5c !important;
+    color: #e5e5e5 !important;
+}
+
+body.dark-mode input::placeholder,
+body.dark-mode textarea::placeholder {
+    color: #6b7280 !important;
+}
+
+body.dark-mode .border-gray-200,
+body.dark-mode .border-gray-300 {
+    border-color: #3d3d5c !important;
+}
+
+body.dark-mode .bg-gradient-to-br.from-blue-500,
+body.dark-mode .bg-gradient-to-br.from-green-500,
+body.dark-mode .bg-gradient-to-br.from-purple-500,
+body.dark-mode .bg-gradient-to-br.from-orange-500 {
+    opacity: 0.9;
+}
+
+body.dark-mode .dmUserList,
+body.dark-mode .groupStudioGridShell,
+body.dark-mode .groupStudioDock,
+body.dark-mode .groupStudioTop {
+    background: #252538 !important;
+    border-color: #3d3d5c !important;
+}
+
+body.dark-mode .groupCard {
+    background: linear-gradient(135deg, rgba(99,102,241,0.15), rgba(139,92,246,0.10)), #252538 !important;
+    border-color: #3d3d5c !important;
+}
+
+body.dark-mode .dmUserRow:hover,
+body.dark-mode .groupCard:hover {
+    background: rgba(99,102,241,0.2) !important;
+}
+
+body.dark-mode .toastCard {
+    background: rgba(30,30,47,0.95) !important;
+    border-color: #3d3d5c !important;
+}
+
+body.dark-mode .notifRow {
+    background: #252538 !important;
+    border-color: #3d3d5c !important;
+}
